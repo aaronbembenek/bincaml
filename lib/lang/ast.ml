@@ -298,7 +298,7 @@ module Expr (V : TYPE) = struct
   type expr = expr_node_v Fix.HashCons.cell
   and expr_node_v = E of (V.t, expr) ExprType.expr_node [@@unboxed]
 
-  module M = Fix.HashCons.ForHashedTypeWeak (struct
+  module ExprHashType = struct
     type t = expr_node_v
 
     let equal (e1 : t) (e2 : t) =
@@ -306,7 +306,9 @@ module Expr (V : TYPE) = struct
       | E e1, E e2 -> ExprType.equal Fix.HashCons.equal e1 e2
 
     let hash = function E e -> ExprType.hash Fix.HashCons.hash e
-  end)
+  end
+
+  module M = Fix.HashCons.ForHashedTypeWeak (ExprHashType)
 
   let fix (e : (V.t, expr) ExprType.expr_node) = M.make (E e)
 
@@ -334,34 +336,42 @@ module Expr (V : TYPE) = struct
   let ( >> ) = fun f g x -> g (f x)
   let rec cata alg e = (unfix >> map (cata alg) >> alg) e
 
+  module Memoiser = Fix.Memoize.ForHashedType (struct
+    type t = expr
+
+    let equal = Fix.HashCons.equal
+    let hash = Fix.HashCons.hash
+  end)
+
+  let cata_memo (alg : (V.t, 'a) expr_node -> 'a) =
+    let g r t = map r (unfix t) |> alg in
+    Memoiser.fix g
+
   module S = Set.Make (V)
 
+  let printer_alg e =
+    match (e : (V.t, 'a) expr_node) with
+    | RVar (id, t) -> V.show id ^ ":" ^ show_type t
+    | AssocExpr (op, args) ->
+        Format.sprintf "%s(%s)" (show_assocop op) (String.concat ", " args)
+    | BinaryExpr (op, l, r) -> Format.sprintf "%s(%s, %s)" (show_binop op) l r
+    | UnaryExpr (op, a) -> Format.sprintf "%s(%s)" (show_unop op) a
+    | BVZeroExtend (n, a) -> Format.sprintf "zero_extend(%d, %s)" n a
+    | BVSignExtend (n, a) -> Format.sprintf "sign_extend(%d, %s)" n a
+    | BVExtract (hi, lo, a) ->
+        Format.sprintf "bvextract(%s, %s, %s)" (Z.to_string hi) (Z.to_string lo)
+          a
+    | BVConcat (l, r) -> Format.sprintf "concat(%s, %s)" l r
+    | BVConst i -> Value.show_bitvector i
+    | IntConst i -> Value.show_integer i
+    | BoolConst true -> "true"
+    | BoolConst false -> "false"
+    | Old e -> Format.sprintf "old(%s)" e
+    | FApply (i, a, r) ->
+        Format.sprintf "%s(%s):%s" i (String.concat "," a) (show_type r)
+
   let to_string =
-    let alg e =
-      let r =
-        match (e : (V.t, 'a) expr_node) with
-        | RVar (id, t) -> V.show id ^ ":" ^ show_type t
-        | AssocExpr (op, args) ->
-            Format.sprintf "%s(%s)" (show_assocop op) (String.concat ", " args)
-        | BinaryExpr (op, l, r) ->
-            Format.sprintf "%s(%s, %s)" (show_binop op) l r
-        | UnaryExpr (op, a) -> Format.sprintf "%s(%s)" (show_unop op) a
-        | BVZeroExtend (n, a) -> Format.sprintf "zero_extend(%d, %s)" n a
-        | BVSignExtend (n, a) -> Format.sprintf "sign_extend(%d, %s)" n a
-        | BVExtract (hi, lo, a) ->
-            Format.sprintf "bvextract(%s, %s, %s)" (Z.to_string hi)
-              (Z.to_string lo) a
-        | BVConcat (l, r) -> Format.sprintf "concat(%s, %s)" l r
-        | BVConst i -> Value.show_bitvector i
-        | IntConst i -> Value.show_integer i
-        | BoolConst true -> "true"
-        | BoolConst false -> "false"
-        | Old e -> Format.sprintf "old(%s)" e
-        | FApply (i, a, r) ->
-            Format.sprintf "%s(%s):%s" i (String.concat "," a) (show_type r)
-      in
-      r
-    in
+    let alg e = printer_alg e in
     cata alg
 
   let free_vars e =
@@ -379,9 +389,57 @@ module Expr (V : TYPE) = struct
     cata alg e
 
   let%expect_test _ =
-    print_endline @@ to_string
-    @@ binexp ~op:`BVADD (intconst (Z.of_int 50)) (intconst (Z.of_int 100));
-    [%expect "\n      `BVADD(50, 100)"]
+    print_string @@ to_string
+    @@ binexp ~op:`INTADD (intconst (Z.of_int 50)) (intconst (Z.of_int 100));
+    [%expect "\n      `INTADD(50, 100)"]
+
+  let exp () =
+    binexp ~op:`INTADD
+      (intconst (Z.of_int 50))
+      (binexp ~op:`INTADD
+         (intconst (Z.of_int 50))
+         (binexp ~op:`INTADD
+            (intconst (Z.of_int 50))
+            (binexp ~op:`INTADD
+               (intconst (Z.of_int 50))
+               (intconst (Z.of_int 5)))))
+
+  let%expect_test _ =
+    let alg e =
+      let s = printer_alg e in
+      print_endline s;
+      s
+    in
+    let p = cata alg in
+    ignore (p @@ exp ());
+    [%expect
+      "\n\
+      \      5\n\
+      \      50\n\
+      \      `INTADD(50, 5)\n\
+      \      50\n\
+      \      `INTADD(50, `INTADD(50, 5))\n\
+      \      50\n\
+      \      `INTADD(50, `INTADD(50, `INTADD(50, 5)))\n\
+      \      50\n\
+      \      `INTADD(50, `INTADD(50, `INTADD(50, `INTADD(50, 5))))"]
+
+  let%expect_test _ =
+    let alg e =
+      let s = printer_alg e in
+      print_endline s;
+      s
+    in
+    let p = cata_memo alg in
+    ignore (p @@ exp ());
+    [%expect
+      "
+      5
+      50
+      `INTADD(50, 5)
+      `INTADD(50, `INTADD(50, 5))
+      `INTADD(50, `INTADD(50, `INTADD(50, 5)))
+      `INTADD(50, `INTADD(50, `INTADD(50, `INTADD(50, 5))))"]
 end
 
 let () = Printexc.record_backtrace true
