@@ -1,4 +1,4 @@
 (executable
  (public_name ocaml_of_basil)
  (name main)
- (libraries ocaml_of_basil))
+ (libraries ocaml_of_basil.ast))

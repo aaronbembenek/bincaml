@@ -1,7 +1,7 @@
 (library
  (public_name ocaml_of_basil.ast)
  (name lang)
- (modules ast)
+ (modules ast ast_sandbox)
  (flags -w -27)
  (libraries zarith fix)
  (inline_tests)
