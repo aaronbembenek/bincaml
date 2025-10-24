@@ -56,7 +56,7 @@ module AbstractExpr = struct
     | ApplyFun of string * 'e list
         (** application of a pure runtime-defined function with n arguments *)
     | Binding of 'var list * 'e  (** syntactic binding in a nested scope *)
-  [@@deriving eq, fold, map, iter]
+  [@@deriving eq, ord, fold, map, iter]
 
   let id a b = a
   let ofold = fold
@@ -109,8 +109,8 @@ end
 
 module Maps = struct
   (* map, value -> result *)
-  type binary = [ `MapIndex ] [@@deriving show { with_path = false }, eq]
-  type intrin = [ `MapUpdate ] [@@deriving show { with_path = false }, eq]
+  type binary = [ `MapIndex ] [@@deriving show { with_path = false }, eq, ord]
+  type intrin = [ `MapUpdate ] [@@deriving show { with_path = false }, eq, ord]
 
   let show = function
     | #binary as b -> show_binary b
@@ -120,13 +120,15 @@ module Maps = struct
 end
 
 module LogicalOps = struct
-  type const = [ `Bool of bool ] [@@deriving show { with_path = false }, eq]
-  type unary = [ `LNOT ] [@@deriving show { with_path = false }, eq]
+  type const = [ `Bool of bool ]
+  [@@deriving show { with_path = false }, eq, ord]
+
+  type unary = [ `LNOT ] [@@deriving show { with_path = false }, eq, ord]
 
   type binary = [ `EQ | `NEQ | `IMPLIES ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
-  type intrin = [ `AND | `OR ] [@@deriving show { with_path = false }, eq]
+  type intrin = [ `AND | `OR ] [@@deriving show { with_path = false }, eq, ord]
 
   let show = function
     | #const as c -> show_const c
@@ -138,10 +140,10 @@ end
 
 module BVOps = struct
   type const = [ `Bitvector of PrimQFBV.t ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   type unary = [ `BVNOT | `BVNEG | `BOOL2BV1 ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   type binary =
     [ `BVAND
@@ -167,7 +169,7 @@ module BVOps = struct
     | `BVSLT
     | `BVSLE
     | `BVConcat ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   type intrin =
     [ `ZeroExtend of int
@@ -177,7 +179,7 @@ module BVOps = struct
     | `BVOR
     | `BVADD
     | `BVXOR ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   let show = function
     | #const as c -> show_const c
@@ -187,13 +189,13 @@ end
 
 module IntOps = struct
   type const = [ `Integer of PrimInt.t ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
-  type unary = [ `INTNEG ] [@@deriving show { with_path = false }, eq]
+  type unary = [ `INTNEG ] [@@deriving show { with_path = false }, eq, ord]
 
   type binary =
     [ `INTADD | `INTMUL | `INTSUB | `INTDIV | `INTMOD | `INTLT | `INTLE ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   let show = function
     | #const as c -> show_const c
@@ -203,7 +205,7 @@ end
 
 module Spec = struct
   type unary = [ `Forall | `Old | `Exists ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   let hash_intrin a = Hashtbl.hash a
 end
@@ -236,17 +238,17 @@ end
 
 module AllOps = struct
   type const = [ IntOps.const | BVOps.const | LogicalOps.const ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   type unary = [ IntOps.unary | BVOps.unary | Spec.unary | LogicalOps.unary ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   type binary =
     [ IntOps.binary | BVOps.binary | Maps.binary | LogicalOps.binary ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   type intrin = [ BVOps.intrin | Maps.intrin | LogicalOps.intrin ]
-  [@@deriving show { with_path = false }, eq]
+  [@@deriving show { with_path = false }, eq, ord]
 
   let hash_const = Hashtbl.hash
   let hash_unary = Hashtbl.hash
@@ -270,21 +272,65 @@ struct
    fun alg -> E.unfix >> E.map (cata alg) >> alg
 end
 
-module Expr = struct
-  module EX = AbstractExpr
+module Final = struct
+  include AbstractExpr
 
-  type ('a, 'b, 'c, 'd, 'e) expr = ('a, 'b, 'c, 'd, 'e) expr_node_v
+  type ('a, 'b, 'c, 'd, 'e, 'f) abs_expr = ('a, 'b, 'c, 'd, 'e, 'f) t
+  [@@deriving eq, ord]
+
+  type ('a, 'b, 'c, 'd, 'e) t = ('a, 'b, 'c, 'd, 'e) expr_node_v
 
   and ('a, 'b, 'c, 'd, 'e) expr_node_v =
-    | E of ('a, 'b, 'c, 'd, 'e, ('a, 'b, 'c, 'd, 'e) expr) EX.t
+    | E of ('a, 'b, 'c, 'd, 'e, ('a, 'b, 'c, 'd, 'e) t) abs_expr
+  [@@deriving eq, ord]
 
-  let fix (e : ('a, 'b, 'c, 'd, 'e, ('a, 'b, 'c, 'd, 'e) expr) EX.t) = E e
+  let fix (e : ('a, 'b, 'c, 'd, 'e, ('a, 'b, 'c, 'd, 'e) t) abs_expr) = E e
 
-  let unfix (e : ('a, 'b, 'c, 'd, 'e) expr) :
-      ('a, 'b, 'c, 'd, 'e, ('a, 'b, 'c, 'd, 'e) expr) EX.t =
+  let unfix (e : ('a, 'b, 'c, 'd, 'e) t) :
+      ('a, 'b, 'c, 'd, 'e, ('a, 'b, 'c, 'd, 'e) t) abs_expr =
     match e with E e -> e
+end
 
-  (* smart constructors *)
+module Alges = struct
+  open AbstractExpr
+
+  let children_alg a =
+    let alg a = fold (fun acc a -> a @ acc) [] a in
+    alg
+
+  let hash_alg (hash_const : 'a -> int) (hash_var : 'b -> int) =
+    let alg a =
+      match a with
+      | RVar v -> hash_var v
+      | Constant c -> hash_const c
+      | UnaryExpr (op, e) -> Hash.pair Hashtbl.hash Fun.id (Hashtbl.hash op, e)
+      | BinaryExpr (op, e, e2) ->
+          Hash.triple Hashtbl.hash Fun.id Fun.id (Hashtbl.hash op, e, e2)
+      | ApplyIntrin (op, es) ->
+          Hash.pair Hashtbl.hash (Hash.list Fun.id) (op, es)
+      | ApplyFun (n, es) -> Hash.pair Hash.string (Hash.list Fun.id) (n, es)
+      | Binding (vs, b) -> Hash.pair (Hash.list hash_var) Fun.id (vs, b)
+    in
+    alg
+end
+
+module type Fix = sig
+  type const
+  type var
+  type unary
+  type binary
+  type intrin
+  type t
+
+  val fix : (const, var, unary, binary, intrin, t) AbstractExpr.t -> t
+  val unfix : t -> (const, var, unary, binary, intrin, t) AbstractExpr.t
+end
+
+module SmartConstr (O : Fix) = struct
+  open O
+
+  let ( >> ) = fun f g x -> g (f x)
+  let rec cata alg e = (unfix >> AbstractExpr.map (cata alg) >> alg) e
   let rvar v = fix (RVar v)
   let const v = fix (Constant v)
   let intconst v = fix (Constant v)
@@ -295,11 +341,6 @@ module Expr = struct
   let identity x = x
   let applyintrin ~op params = fix (ApplyIntrin (op, params))
   let apply_fun ~name params = fix (ApplyFun (name, params))
-
-  (* this map definition embeds unfix *)
-  let map f e = EX.map f e
-  let ( >> ) = fun f g x -> g (f x)
-  let rec cata alg e = (unfix >> map (cata alg) >> alg) e
 end
 
 (*
@@ -333,12 +374,47 @@ end
 *)
 
 module BasilExpr = struct
-  include Expr
+  include Final
 
-  type t =
-    (AllOps.const, Var.t, AllOps.unary, AllOps.binary, AllOps.intrin) expr
+  module E = struct
+    include AllOps
 
-  let identity x = x
+    type var = Var.t
+    type 'a cell = 'a Fix.HashCons.cell
+
+    let equal_cell _ a b = Fix.HashCons.equal a b
+    let compare_cell _ a b = Fix.HashCons.compare a b
+
+    type t = expr_node_v cell
+
+    and expr_node_v =
+      | E of (const, Var.t, unary, binary, intrin, t) AbstractExpr.t
+    [@@deriving eq, ord]
+
+    module HashExpr = struct
+      type t = expr_node_v
+
+      let hash e : int =
+        e |> function E e -> AbstractExpr.hash Fix.HashCons.hash e
+
+      let equal (i : t) (j : t) : bool =
+        match (i, j) with
+        | E i, E j ->
+            AbstractExpr.equal AllOps.equal_const Var.equal AllOps.equal_unary
+              AllOps.equal_binary AllOps.equal_intrin Fix.HashCons.equal i j
+    end
+
+    module H = Fix.HashCons.ForHashedTypeWeak (HashExpr)
+
+    let fix i = H.make (E i)
+    let unfix i = match Fix.HashCons.data i with E i -> i
+  end
+
+  include E
+  module R = SmartConstr (E)
+  include R
+
+  let hash_abs = hash
   let intconst (v : PrimInt.t) : t = const (`Integer v)
   let boolconst (v : bool) : t = const (`Bool v)
   let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
