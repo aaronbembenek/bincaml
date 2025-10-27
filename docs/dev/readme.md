@@ -29,13 +29,16 @@ Semantics
 
 ### Binary Static Analysers
 
-- [binsec/codex](https://github.com/codex-semantics-library/codex)
+- [binsec/codex](https://github.com/codex-semantics-library/codex) (GPL)
+  - Contains many useful domains
   - Binsec/Codex paper artifact, minimal impelemntatino "TAI": https://zenodo.org/records/10895582
   - An interesting aspect is the use of hash-consed patricia trees (tries) and global value numbering for
   efficient map merging resulting in [this
   library](https://ocaml.org/p/patricia-tree/), Endianneses of the key is
   important for efficiency here, though there is a trie  in ccube/containers
   that would be easier to use I am unsure how the endianness works out.
+- [why3 inference](https://gitlab.inria.fr/why3/why3/-/tree/master/src/infer?ref_type=heads) (GPL)
+-
 
 # TODO
 
@@ -95,18 +98,19 @@ input
 - probably some kind of equivalence checking of programs as early as possible;
 interpreter, smt, etc
 
-## Formal methods
+##### Formal methods
 
-- architect so that verified components can be integrated
 - consider using gospel framework to gradually verify modules, or provide more
 powerful dynamic testing on top of regular tests
-- center on DSLs that can generate both ocaml and isabelle; possible approach
-for the rewrite system similar to LEM
-   - my thinking is this avoids restricting the structure of ocaml code a lot,
-   but maybe can just codegen from isabelle
+  - If we incrementally specify in gospel as documentation it can provide a path to extend, especially if we make specifications testable using ortac.
+    - Consider integration of [ortac](https://github.com/ocaml-gospel/ortac) for more powerful property testing
+  - Cameleer provides deductive verification of gospel specifications using
+- Consider exploring ocaml's `afl-fuzz` support function fuzzing
+
+- architect obasil so that components are independent, have independent correctness properties can be tested and verified independently and composed
+  together
 
 # Tasks
-
 
 ## Expression evaluator
 
