@@ -25,6 +25,7 @@ module BasilASTLoader = struct
     | LBlock of
         (string
         * Program.stmt list
+        * Program.call option
         * [ `Return of Program.e list | `Goto of string list | `None ])
 
   let failure x = failwith "Undefined case." (* x discarded *)
@@ -97,6 +98,7 @@ module BasilASTLoader = struct
           ProcDef_Empty ) ->
         let formal_in_params_order = List.map param_to_formal in_params in
         let formal_out_params_order = List.map param_to_formal out_params in
+        let _ = prog.prog.proc_names.fresh ~name:id () in
         Hashtbl.add prog.params_order id
           (formal_in_params_order, formal_out_params_order);
         prog
@@ -142,9 +144,9 @@ module BasilASTLoader = struct
         let blocks_id =
           List.map
             (function
-              | LBlock (name, stmts, succ) ->
+              | LBlock (name, stmts, call, succ) ->
                   let stmts = stmts in
-                  (name, Procedure.fresh_block p ~stmts ()))
+                  (name, Procedure.fresh_block p ~stmts ?call ()))
             blocks
         in
         let block_label_id = StringMap.of_list blocks_id in
@@ -155,7 +157,7 @@ module BasilASTLoader = struct
         (* add intraproc edges*)
         List.iter
           (function
-            | LBlock (name, _, succ) -> (
+            | LBlock (name, _, call, succ) -> (
                 match succ with
                 | `Goto tgts ->
                     let f = StringMap.find name block_label_id in
@@ -194,19 +196,19 @@ module BasilASTLoader = struct
   and transEndian (x : BasilIR.AbsBasilIR.endian) =
     match x with Endian_Little -> `Big | Endian_Big -> `Little
 
-  and trans_stmt (p_st : load_st) (x : BasilIR.AbsBasilIR.stmtWithAttrib) :
-      Program.stmt list =
+  and trans_stmt (p_st : load_st) (x : BasilIR.AbsBasilIR.stmtWithAttrib) =
     let stmt = match x with StmtWithAttrib1 (stmt, _) -> stmt in
+    let open Stmt in
+    let open Call in
     match stmt with
     | Stmt_SingleAssign (Assignment1 (lvar, expr)) ->
-        [ Instr_Assign [ (transLVar lvar, trans_expr expr) ] ]
+        `Stmt (Instr_Assign [ (transLVar lvar, trans_expr expr) ])
     | Stmt_MultiAssign assigns ->
-        [
-          Instr_Assign
-            (assigns
-            |> List.map (function Assignment1 (l, r) ->
-                   (transLVar l, trans_expr r)));
-        ]
+        `Stmt
+          (Instr_Assign
+             (assigns
+             |> List.map (function Assignment1 (l, r) ->
+                    (transLVar l, trans_expr r))))
     | Stmt_Load (lvar, endian, bident, expr, intval) ->
         let endian = transEndian endian in
         let mem =
@@ -214,10 +216,9 @@ module BasilASTLoader = struct
           Option.get_exn_or ("memory undefined: " ^ n)
           @@ Var.Decls.find_opt p_st.prog.globals n
         in
-        [
-          Instr_Load
-            { lhs = transLVar lvar; mem; addr = trans_expr expr; endian };
-        ]
+        `Stmt
+          (Instr_Load
+             { lhs = transLVar lvar; mem; addr = trans_expr expr; endian })
     | Stmt_Store (endian, bident, addr, value, intval) ->
         let endian = transEndian endian in
         let mem =
@@ -225,10 +226,9 @@ module BasilASTLoader = struct
           Option.get_exn_or ("memory undefined: " ^ n)
           @@ Var.Decls.find_opt p_st.prog.globals n
         in
-        [
-          Instr_Store
-            { mem; addr = trans_expr addr; value = trans_expr value; endian };
-        ]
+        `Stmt
+          (Instr_Store
+             { mem; addr = trans_expr addr; value = trans_expr value; endian })
     | Stmt_DirectCall (calllvars, bident, exprs) ->
         let n = unsafe_unsigil (`Proc bident) in
         let procid = p_st.prog.proc_names.get_id n in
@@ -238,14 +238,14 @@ module BasilASTLoader = struct
           List.combine (List.map fst in_param) (List.map trans_expr exprs)
           |> Params.M.of_list
         in
-        [ Instr_Call { lhs; procid; args } ]
+        `Call (Instr_Call { lhs; procid; args })
     | Stmt_IndirectCall expr ->
-        [ Instr_IndirectCall { target = trans_expr expr } ]
+        `Call (Instr_IndirectCall { target = trans_expr expr })
     | Stmt_Assume expr ->
-        [ Instr_Assume { body = trans_expr expr; branch = false } ]
+        `Stmt (Instr_Assume { body = trans_expr expr; branch = false })
     | Stmt_Guard expr ->
-        [ Instr_Assume { body = trans_expr expr; branch = true } ]
-    | Stmt_Assert expr -> [ Instr_Assert { body = trans_expr expr } ]
+        `Stmt (Instr_Assume { body = trans_expr expr; branch = true })
+    | Stmt_Assert expr -> `Stmt (Instr_Assert { body = trans_expr expr })
 
   and trans_call_lhs (formal_out : string list) (x : lVars) : Params.lhs =
     match x with
@@ -297,9 +297,22 @@ module BasilASTLoader = struct
           statements,
           jump,
           endlist ) ->
-        let stmts = List.map (trans_stmt prog) statements in
+        let last_stmt = List.last 1 statements |> List.head_opt in
+        let statements = List.take (List.length statements - 1) statements in
+        let stmts =
+          List.map (trans_stmt prog) statements
+          |> List.map (function
+               | `Call c -> failwith "call in incorrect position"
+               | `Stmt c -> c)
+        in
+        let st, call =
+          match Option.map (trans_stmt prog) last_stmt with
+          | Some (`Call c) -> ([], Some c)
+          | Some (`Stmt c) -> ([ c ], None)
+          | None -> ([], None)
+        in
         let succ = trans_jump jump in
-        LBlock (name, List.concat stmts, succ)
+        LBlock (name, stmts @ st, call, succ)
 
   and param_to_lvar (pp : params) : Var.t =
     match pp with

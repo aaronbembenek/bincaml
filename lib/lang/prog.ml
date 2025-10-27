@@ -74,6 +74,48 @@ module Params = struct
   let pp_lhs fmt a = Format.pp_print_string fmt (show_lhs a)
 end
 
+module Call = struct
+  type ('lvar, 'expr) t =
+    | Instr_Return of { args : 'expr Params.M.t }
+    | Instr_Call of {
+        lhs : 'lvar Params.M.t;
+        procid : ID.t;
+        args : 'expr Params.M.t;
+      }
+    | Instr_IndirectCall of { target : 'expr }
+  [@@deriving eq, ord, map]
+
+  let fold ~f_lvar ~f_rvar ~f_expr init e =
+    match e with
+    | Instr_IndirectCall { target } -> f_expr init target
+    | Instr_Call { lhs; procid; args } ->
+        let args = Params.M.to_list args |> List.map ~f:snd in
+        let lhs = Params.M.to_list lhs |> List.map ~f:snd in
+        List.fold_left ~f:f_expr ~init args |> fun i ->
+        List.fold_left ~f:f_lvar ~init:i lhs
+    | Instr_Return { args } ->
+        let args = Params.M.to_list args |> List.map ~f:snd in
+        List.fold_left ~f:f_expr ~init args
+
+  let to_string c =
+    let param_list l =
+      if Params.M.is_empty l then ""
+      else
+        "("
+        ^ (Params.M.to_list l
+          |> List.map ~f:(function k, v -> k ^ " -> " ^ v)
+          |> String.concat ~sep:", ")
+        ^ ")"
+    in
+    let c = map Var.to_string BasilExpr.to_string c in
+    match c with
+    | Instr_Call { lhs; procid; args } ->
+        let n = Int.to_string procid in
+        param_list lhs ^ " := call " ^ n ^ param_list args
+    | Instr_Return { args } -> "return " ^ param_list args
+    | Instr_IndirectCall { target } -> "indirect_call " ^ target
+end
+
 module Stmt = struct
   type endian = [ `Big | `Little ] [@@deriving eq, ord]
   type ident = string
@@ -82,32 +124,31 @@ module Stmt = struct
   let pp_endian fmt e = Format.pp_print_string fmt (show_endian e)
 
   type ('lvar, 'var, 'expr) t =
-    | Instr_Assign of ('lvar * 'expr) list
-    | Instr_Assert of { body : 'expr }
-    | Instr_Assume of { body : 'expr; branch : bool }
+    | Instr_Assign of ('lvar * 'expr) list  (** simultaneous assignment *)
+    | Instr_Assert of { body : 'expr }  (** assertions *)
+    | Instr_Assume of { body : 'expr; branch : bool }  (** load from memory *)
     | Instr_Load of { lhs : 'lvar; mem : 'var; addr : 'expr; endian : endian }
+        (** effectful operation calling a named intrinsic*)
+    | Instr_IntrinCall of {
+        lhs : 'lvar Params.M.t;
+        name : string;
+        args : 'expr Params.M.t;
+      }  (** a store to memory *)
     | Instr_Store of {
         mem : 'var;
         addr : 'expr;
         value : 'expr;
         endian : endian;
       }
-    | Instr_Call of {
-        lhs : 'lvar Params.M.t;
-        procid : ID.t;
-        args : 'expr Params.M.t;
-      }
-    | Instr_Return of { args : 'expr Params.M.t }
-    | Instr_IntrinCall of {
-        lhs : 'lvar Params.M.t;
-        name : string;
-        args : 'expr Params.M.t;
-      }
-    | Instr_IndirectCall of { target : 'expr }
   [@@deriving eq, ord, map]
 
-  let map ~f_lvar ~f_rvar ~f_expr e = map f_lvar f_rvar f_expr e
+  let map ~f_lvar ~f_expr e =
+    let f_rvar v = f_expr (BasilExpr.rvar v) in
+    map f_lvar f_rvar f_expr e
 
+  (** TODO: this isn't really a sensible operation I think; would probably make
+      more sense to just have a 'subexprs' and 'lvars' functions (which return
+      iters)*)
   let fold ~(f_lvar : 'a -> 'lv -> 'a) ~(f_rvar : 'a -> 'v -> 'a)
       ~(f_expr : 'a -> 'e -> 'a) ~(init : 'a) (e : ('lv, 'v, 'e) t) : 'a =
     match e with
@@ -122,20 +163,11 @@ module Stmt = struct
     | Instr_Store { mem; addr; value; endian } ->
         f_expr init value |> fun i ->
         f_expr i addr |> fun i -> f_rvar i mem
-    | Instr_Call { lhs; procid; args } ->
-        let args = Params.M.to_list args |> List.map ~f:snd in
-        let lhs = Params.M.to_list lhs |> List.map ~f:snd in
-        List.fold_left ~f:f_expr ~init args |> fun i ->
-        List.fold_left ~f:f_lvar ~init:i lhs
-    | Instr_Return { args } ->
-        let args = Params.M.to_list args |> List.map ~f:snd in
-        List.fold_left ~f:f_expr ~init args
     | Instr_IntrinCall { lhs; name; args } ->
         let args = Params.M.to_list args |> List.map ~f:snd in
         let lhs = Params.M.to_list lhs |> List.map ~f:snd in
         List.fold_left ~f:f_expr ~init args |> fun i ->
         List.fold_left ~f:f_lvar ~init:i lhs
-    | Instr_IndirectCall { target } -> f_expr init target
 
   let to_string show_var show_expr (s : (Var.t, Var.t, BasilExpr.t) t) =
     let param_list l =
@@ -147,7 +179,7 @@ module Stmt = struct
           |> String.concat ~sep:", ")
         ^ ")"
     in
-    map ~f_lvar:show_var ~f_rvar:show_var ~f_expr:show_expr s |> function
+    map ~f_lvar:show_var ~f_expr:show_expr s |> function
     | Instr_Assign ls ->
         List.map ~f:(function lhs, rhs -> lhs ^ " := " ^ rhs) ls
         |> String.concat ~sep:", "
@@ -158,12 +190,8 @@ module Stmt = struct
         lhs ^ " := " ^ "load_" ^ show_endian endian ^ " " ^ addr
     | Instr_Store { mem; addr; value; endian } ->
         "store_" ^ show_endian endian ^ " " ^ addr ^ " " ^ value
-    | Instr_Call { lhs; procid; args } ->
-        param_list lhs ^ " := call " ^ param_list args
-    | Instr_Return { args } -> "return " ^ param_list args
     | Instr_IntrinCall { lhs; name; args } ->
         param_list lhs ^ " := call " ^ name ^ param_list args
-    | Instr_IndirectCall { target } -> "indirect_call " ^ target
 end
 
 module Block = struct
@@ -174,15 +202,22 @@ module Block = struct
     id : ID.t;
     phis : 'v phi list;
     stmts : ('v, 'v, 'e) Stmt.t list;
+    call : ('v, 'e) Call.t option;
   }
   [@@deriving eq, ord]
 
   let to_string b =
-    Printf.sprintf "block %d [\n  %s]\n" b.id
-      (List.map
-         ~f:(fun stmt -> Stmt.to_string Var.to_string BasilExpr.to_string stmt)
-         b.stmts
-      |> String.concat ~sep:";\n  ")
+    let c =
+      Option.map (fun c -> Printf.sprintf ";\n  %s" (Call.to_string c)) b.call
+      |> Option.get_or ~default:""
+    in
+    let stmts =
+      List.map
+        ~f:(fun stmt -> Stmt.to_string Var.to_string BasilExpr.to_string stmt)
+        b.stmts
+      |> String.concat ~sep:";\n  "
+    in
+    Printf.sprintf "block %d [\n  %s%s]\n" b.id stmts c
 
   let fold_stmt_forwards ~(phi : 'acc -> 'v phi list -> 'acc)
       ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc) (i : 'a) (b : ('v, 'e) t) :
@@ -279,10 +314,10 @@ module Procedure = struct
     *)
 
   let fresh_block p ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
-      ?(successors = []) () =
+      ?(successors = []) ?call () =
     let open Block in
     let id = p.gensym_bloc () in
-    let b = Edge.(Block { id; phis; stmts }) in
+    let b = Edge.(Block { id; phis; stmts; call }) in
     let open Vert in
     G.add_vertex p.graph (Begin id);
     G.add_vertex p.graph (Begin id);
@@ -295,7 +330,14 @@ module Procedure = struct
     let fr = End from in
     let id = p.gensym_bloc () in
     let b =
-      Edge.(Block { id; phis = []; stmts = [ Stmt.Instr_Return { args } ] })
+      Edge.(
+        Block
+          {
+            id;
+            phis = [];
+            stmts = [];
+            call = Some (Call.Instr_Return { args });
+          })
     in
     G.add_edge_e p.graph (fr, b, Return)
 
@@ -324,7 +366,7 @@ module Procedure = struct
 
   let fresh_var p ?(pure = true) typ =
     let n = "v" ^ Int.to_string (p.gensym ()) in
-    let v = Var.create n typ in
+    let v = Var.create n typ ~pure in
     Var.Decls.add p.locals v;
     v
 
@@ -336,6 +378,7 @@ module Program = struct
   type proc = Procedure.t
   type bloc = (Var.t, BasilExpr.t) Block.t
   type stmt = (Var.t, Var.t, e) Stmt.t
+  type call = (Var.t, e) Call.t
 
   type t = {
     modulename : string;
