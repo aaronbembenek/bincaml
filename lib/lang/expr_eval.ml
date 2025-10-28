@@ -112,4 +112,4 @@ let%expect_test _ =
   [%expect
     {|
     bvmul(bvadd(0xa:bv10, 0xa:bv10), beans:bv10)
-    bvmul(0xa:bv10, beans:bv10) |}]
+    bvmul(0x14:bv10, beans:bv10) |}]

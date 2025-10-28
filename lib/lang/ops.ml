@@ -127,7 +127,7 @@ module BVOps = struct
     | `BVSREM -> srem
     | `BVSDIV -> sdiv
     | `BVCOMP -> fun a b -> if equal a b then true_bv else false_bv
-    | `BVADD -> bitand
+    | `BVADD -> add
     | `BVASHR -> ashr
     | `BVSMOD -> failwith "unimplemnted"
     | `BVSHL -> shl
