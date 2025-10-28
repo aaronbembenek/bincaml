@@ -30,6 +30,20 @@ module LogicalOps = struct
     | #unary as u -> show_unary u
     | #binary as b -> show_binary b
 
+  let eval_const = function `Bool b -> b
+  let eval_unary op = match op with `NOT -> not
+
+  let eval_binary (op : binary) =
+    match op with
+    | `EQ -> Bool.equal
+    | `NEQ -> fun a b -> not (Bool.equal a b)
+    | `IMPLIES -> fun a b -> b || not a
+
+  let eval_intrin (op : intrin) =
+    match op with
+    | `OR -> List.fold_left (fun a b -> a || b) false
+    | `AND -> List.fold_left (fun a b -> a && b) true
+
   let hash_boolop = Hashtbl.hash
 end
 
@@ -37,12 +51,58 @@ module BVOps = struct
   type const = [ `Bitvector of PrimQFBV.t ]
   [@@deriving show { with_path = false }, eq, ord]
 
-  type unary =
-    [ `BVNOT | `BVNEG | `BOOL2BV1 | `ZeroExtend of int | `SignExtend of int ]
+  let eval_const = function `Bitvector b -> b
+
+  type unary_bool = [ `BOOL2BV1 ]
   [@@deriving show { with_path = false }, eq, ord]
 
-  type binary =
-    [ `BVAND
+  type unary_unif =
+    [ `BVNOT
+    | `BVNEG
+    | `ZeroExtend of int
+    | `SignExtend of int
+    | `Extract of int * int ]
+  [@@deriving show { with_path = false }, eq, ord]
+
+  type unary = [ unary_bool | unary_unif ]
+  [@@deriving show { with_path = false }, eq, ord]
+
+  let eval_unary_bool (o : unary_bool) =
+    match o with
+    | `BOOL2BV1 -> (
+        function true -> PrimQFBV.true_bv | false -> PrimQFBV.false_bv)
+
+  let eval_unary_unif (o : unary_unif) =
+    match o with
+    | `BVNEG -> PrimQFBV.neg
+    | `SignExtend sz -> PrimQFBV.sign_extend ~extension:sz
+    | `BVNOT -> PrimQFBV.bitnot
+    | `ZeroExtend sz -> PrimQFBV.zero_extend ~extension:sz
+    | `Extract (hi, lo) -> fun b -> PrimQFBV.extract hi lo b
+
+  let eval_unary_bv (o : unary_unif) =
+    match o with
+    | `BVNEG -> PrimQFBV.neg
+    | `SignExtend sz -> PrimQFBV.sign_extend ~extension:sz
+    | `BVNOT -> PrimQFBV.bitnot
+    | `ZeroExtend sz -> PrimQFBV.zero_extend ~extension:sz
+    | `Extract (hi, lo) -> fun b -> PrimQFBV.extract hi lo b
+
+  type binary_pred = [ `EQ | `BVULT | `BVULE | `BVSLT | `BVSLE ]
+  [@@deriving show { with_path = false }, eq, ord]
+  (** ops with type bv -> bv -> bool *)
+
+  let eval_binary_pred (op : [< binary_pred ]) =
+    match op with
+    | `EQ -> PrimQFBV.equal
+    | `BVSLE -> PrimQFBV.sle
+    | `BVULT -> PrimQFBV.ult
+    | `BVULE -> PrimQFBV.ule
+    | `BVSLT -> PrimQFBV.slt
+
+  type binary_unif =
+    [ `BVConcat
+    | `BVAND
     | `BVOR
     | `BVADD
     | `BVMUL
@@ -51,24 +111,54 @@ module BVOps = struct
     | `BVSHL
     | `BVLSHR
     | `BVNAND
-    | `BVNOR
     | `BVXOR
-    | `BVXNOR
     | `BVCOMP
     | `BVSUB
     | `BVSDIV
     | `BVSREM
     | `BVSMOD
-    | `BVASHR
-    | `BVULT
-    | `BVULE
-    | `BVSLT
-    | `BVSLE
-    | `BVConcat ]
+    | `BVASHR ]
+  [@@deriving show { with_path = false }, eq, ord]
+  (** ops with type bv -> bv -> bv *)
+
+  let eval_binary_unif (op : binary_unif) =
+    let open PrimQFBV in
+    match op with
+    | `BVSREM -> srem
+    | `BVSDIV -> sdiv
+    | `BVCOMP -> fun a b -> if equal a b then true_bv else false_bv
+    | `BVADD -> bitand
+    | `BVASHR -> ashr
+    | `BVSMOD -> failwith "unimplemnted"
+    | `BVSHL -> shl
+    | `BVNAND -> fun a b -> bitnot (bitand a b)
+    | `BVUREM -> urem
+    | `BVXOR -> bitxor
+    | `BVOR -> bitor
+    | `BVSUB -> sub
+    | `BVUDIV -> udiv
+    | `BVConcat -> concat
+    | `BVLSHR -> lshr
+    | `BVAND -> bitand
+    | `BVMUL -> mul
+
+  type binary = [ binary_pred | binary_unif ]
   [@@deriving show { with_path = false }, eq, ord]
 
-  type intrin = [ `Extract of int * int | `BVAND | `BVOR | `BVADD | `BVXOR ]
+  type intrin = [ `BVAND | `BVOR | `BVADD | `BVXOR ]
   [@@deriving show { with_path = false }, eq, ord]
+
+  let eval_intrin (op : intrin) args =
+    let ev f =
+      match args with
+      | h :: tl -> List.fold_left f h args
+      | _ -> raise (Invalid_argument "op needs at least two args")
+    in
+    match op with
+    | `BVADD -> ev PrimQFBV.add
+    | `BVXOR -> ev PrimQFBV.bitxor
+    | `BVOR -> ev PrimQFBV.bitor
+    | `BVAND -> ev PrimQFBV.bitand
 
   let show = function
     | #const as c -> show_const c
@@ -82,8 +172,26 @@ module IntOps = struct
 
   type unary = [ `INTNEG ] [@@deriving show { with_path = false }, eq, ord]
 
-  type binary =
-    [ `INTADD | `INTMUL | `INTSUB | `INTDIV | `INTMOD | `INTLT | `INTLE ]
+  let eval_unary (u : unary) = match u with `INTNEG -> Z.neg
+
+  type binary_unif = [ `INTADD | `INTMUL | `INTSUB | `INTDIV | `INTMOD ]
+  [@@deriving show { with_path = false }, eq, ord]
+
+  type binary_pred = [ `EQ | `INTLT | `INTLE ]
+  [@@deriving show { with_path = false }, eq, ord]
+
+  let eval_binary_unif (op : binary_unif) =
+    match op with
+    | `INTDIV -> Z.div
+    | `INTADD -> Z.add
+    | `INTMOD -> Z.( mod )
+    | `INTMUL -> Z.mul
+    | `INTSUB -> Z.sub
+
+  let eval_binary_pred (op : binary_pred) =
+    match op with `EQ -> Z.equal | `INTLT -> Z.lt | `INTLE -> Z.leq
+
+  type binary = [ binary_unif | binary_pred ]
   [@@deriving show { with_path = false }, eq, ord]
 
   let show = function
@@ -145,6 +253,7 @@ module AllOps = struct
     | `Exists -> return Boolean
     | `BVNOT -> return a
     | `BOOL2BV1 -> return @@ Bitvector 1
+    | `Extract (hi, lo) -> return (Bitvector (hi - lo))
 
   let ret_type_bin (o : binary) l r =
     let open Types.BType in
@@ -155,8 +264,8 @@ module AllOps = struct
         return Boolean
     | `INTDIV | `INTADD | `INTMUL | `INTSUB | `INTMOD -> return Integer
     | `BVAND | `BVOR | `BVADD | `BVMUL | `BVUDIV | `BVUREM | `BVSHL | `BVLSHR
-    | `BVNAND | `BVNOR | `BVXOR | `BVXNOR | `BVCOMP | `BVSUB | `BVSDIV | `BVSREM
-    | `BVSMOD | `BVASHR ->
+    | `BVNAND | `BVXOR | `BVCOMP | `BVSUB | `BVSDIV | `BVSREM | `BVSMOD
+    | `BVASHR ->
         return l
     | `BVConcat -> (
         match (l, r) with
@@ -168,7 +277,6 @@ module AllOps = struct
     let return ret = Fun { args; ret } in
     match o with
     | `BVADD -> return @@ List.hd args
-    | `Extract (hi, lo) -> return (Bitvector (hi - lo))
     | `BVOR -> return @@ List.hd args
     | `BVXOR -> return @@ List.hd args
     | `BVAND -> return @@ List.hd args
@@ -180,7 +288,6 @@ module AllOps = struct
   let to_string (op : [< const | unary | binary | intrin ]) =
     match op with
     | `BVADD -> "bvadd"
-    | `BVNOR -> "bvnor"
     | `BVSREM -> "bvsrem"
     | `BVSDIV -> "bvsdiv"
     | `Forall -> "forall"
@@ -199,7 +306,6 @@ module AllOps = struct
     | `Exists -> "exists"
     | `SignExtend n -> Printf.sprintf "sign_extend_%d" n
     | `ZeroExtend n -> Printf.sprintf "zero_extend_%d" n
-    | `BVXNOR -> "bvxnor"
     | `EQ -> "eq"
     | `INTADD -> "intadd"
     | `BVNAND -> "bvnand"
@@ -229,6 +335,13 @@ module AllOps = struct
     | `BOOL2BV1 -> "bool2bv1"
     | `NOT -> "not"
     | `BVSLT -> "bvslt"
+
+  let eval_equal (a : const) (b : const) =
+    match (a, b) with
+    | `Bitvector a, `Bitvector b -> PrimQFBV.equal a b
+    | `Integer a, `Integer b -> Z.equal a b
+    | `Bool a, `Bool b -> Bool.equal a b
+    | _, _ -> false
 
   let hash_const = Hashtbl.hash
   let hash_unary = Hashtbl.hash

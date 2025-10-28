@@ -292,6 +292,39 @@ module BasilExpr = struct
   let boolconst (v : bool) : t = const (`Bool v)
   let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
 
+  let rewrite ~(rw_fun : t abstract_expr -> t option) (expr : t) =
+    let rw_alg e =
+      let orig s = fix s in
+      match rw_fun e with Some e -> e | None -> orig e
+    in
+    cata rw_alg expr
+
+  let rewrite_typed (f : (t * Types.BType.t) abstract_expr -> t option)
+      (expr : t) =
+    let rw_alg e =
+      let orig s = fix @@ AbstractExpr.map fst s in
+      match f e with Some e -> e | None -> orig e
+    in
+    fold_with_type rw_alg expr
+
+  let rewrite_typed (f : (t * Types.BType.t) abstract_expr -> t option)
+      (expr : t) =
+    let rw_alg e =
+      let orig s = fix @@ AbstractExpr.map fst s in
+      match f e with Some e -> e | None -> orig e
+    in
+    fold_with_type rw_alg expr
+
+  let rewrite_2l
+      (f : (t abstract_expr * Types.BType.t) abstract_expr -> t option)
+      (expr : t) =
+    let orig s = fix @@ AbstractExpr.map fst s in
+    let rw_alg e =
+      let unfold = AbstractExpr.map (fun (e, t) -> (unfix e, t)) e in
+      match f unfold with Some e -> e | None -> orig e
+    in
+    fold_with_type rw_alg expr
+
   let zero_extend ~n_prefix_bits (e : t) : t =
     unexp ~op:(`ZeroExtend n_prefix_bits) e
 
@@ -299,7 +332,7 @@ module BasilExpr = struct
     unexp ~op:(`SignExtend n_prefix_bits) e
 
   let extract ~hi_incl ~lo_excl (e : t) : t =
-    applyintrin ~op:(`Extract (hi_incl, lo_excl)) [ e ]
+    unexp ~op:(`Extract (hi_incl, lo_excl)) e
 
   let concat (e : t) (f : t) : t = binexp ~op:`BVConcat e f
   let forall ~bound p = unexp ~op:`Forall (binding bound p)

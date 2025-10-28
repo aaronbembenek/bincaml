@@ -362,6 +362,12 @@ module BasilASTLoader = struct
         | `BVSGE ->
             BasilExpr.unexp ~op:`NOT
               (BasilExpr.binexp ~op:`BVSLT (trans_expr expr0) (trans_expr expr))
+        | `BVXNOR ->
+            BasilExpr.unexp ~op:`NOT
+              (BasilExpr.binexp ~op:`BVXOR (trans_expr expr0) (trans_expr expr))
+        | `BVNOR ->
+            BasilExpr.unexp ~op:`NOT
+              (BasilExpr.binexp ~op:`BVOR (trans_expr expr0) (trans_expr expr))
         | `INTGT -> failwith "usupported up : intgt"
         | `INTGE -> failwith "unsupported op: intge")
     | Expr_Unary (unop, expr) ->
@@ -430,15 +436,15 @@ module BasilASTLoader = struct
     | BVBinOp_bvshl -> `BVSHL
     | BVBinOp_bvlshr -> `BVLSHR
     | BVBinOp_bvnand -> `BVNAND
-    | BVBinOp_bvnor -> `BVNOR
     | BVBinOp_bvxor -> `BVXOR
-    | BVBinOp_bvxnor -> `BVXNOR
     | BVBinOp_bvcomp -> `BVCOMP
     | BVBinOp_bvsub -> `BVSUB
     | BVBinOp_bvsdiv -> `BVSDIV
     | BVBinOp_bvsrem -> `BVSREM
     | BVBinOp_bvsmod -> `BVSMOD
     | BVBinOp_bvashr -> `BVASHR
+    | BVBinOp_bvnor -> `BVNOR
+    | BVBinOp_bvxnor -> `BVXNOR
 
   and transBVLogicalBinOp (x : bVLogicalBinOp) =
     match x with

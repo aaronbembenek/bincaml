@@ -38,6 +38,9 @@ module PrimQFBV = struct
   let to_unsigned_bigint b = z_extract b.v 0 b.w
   let is_negative b = Z.lt (to_signed_bigint b) Z.zero
   let equal a b = Int.equal a.w b.w && Z.equal a.v b.v
+  let true_bv = ones ~size:1
+  let false_bv = zero ~size:1
+  let extract hi lo (b : t) = { w = hi - lo; v = z_signed_extract b.v hi lo }
 
   let compare a b =
     Int.compare a.w b.w |> function 0 -> Z.compare a.v b.v | o -> o
@@ -74,6 +77,7 @@ module PrimQFBV = struct
   let size_is_equal a b = assert (width a = width b)
   let bind f a = create ~width:a.w (f a.v)
 
+  (* wrap bv operation *)
   let bind2 f a b =
     size_is_equal a b;
     create ~width:a.w (f a.v b.v)
@@ -84,6 +88,7 @@ module PrimQFBV = struct
 
   let neg a = bind Z.neg a
   let add a b = bind2 Z.add a b
+  let mul a b = bind2 Z.mul a b
   let sub a b = bind2 Z.sub a b
   let bitnot a = bind Z.lognot a
   let bitand a b = bind2 Z.logand a b
@@ -125,6 +130,9 @@ module PrimQFBV = struct
   let ashr a b = { w = a.w; v = Z.shift_right a.v (Z.to_int b.v) }
   let lshr a b = { w = a.w; v = Z.shift_right_trunc a.v (Z.to_int b.v) }
   let zero_extend ~(extension : int) b = { w = b.w + extension; v = b.v }
+
+  let shl a b =
+    { w = a.w; v = z_extract (Z.shift_left a.v (Z.to_int b.v)) 0 a.w }
 
   let sign_extend ~(extension : int) b =
     let w = b.w + extension in
