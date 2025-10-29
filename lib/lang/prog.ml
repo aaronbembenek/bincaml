@@ -111,17 +111,21 @@ module Stmt = struct
     let f_rvar v = f_expr (BasilExpr.rvar v) in
     map f_lvar f_rvar f_expr e
 
+  (** return an iterator over any memory field in the statement (read or
+      written) *)
   let iter_mem_access stmt =
     match stmt with
     | Instr_Load { lhs; mem; addr; endian } -> Iter.singleton mem
     | Instr_Store { mem; addr; value; endian } -> Iter.singleton mem
     | _ -> Iter.empty
 
+  (** return an iterator containing the memory written to by the statement *)
   let iter_mem_store stmt =
     match stmt with
     | Instr_Store { mem; addr; value; endian } -> Iter.singleton mem
     | _ -> Iter.empty
 
+  (** get an iterator over the expresions in the RHS of the statement *)
   let iter_rexpr stmt =
     let open Iter.Infix in
     match stmt with
@@ -136,6 +140,7 @@ module Stmt = struct
     | Instr_Call { lhs; procid; args } -> Params.M.to_iter args >|= snd
     | Instr_Return { args } -> Params.M.to_iter args >|= snd
 
+  (** get an iterator over the variables in the LHS of the statement *)
   let iter_lvar stmt =
     let open Iter.Infix in
     match stmt with
@@ -149,6 +154,7 @@ module Stmt = struct
     | Instr_Call { lhs; procid; args } -> Params.M.to_iter lhs >|= snd
     | Instr_Return { args } -> Iter.empty
 
+  (** Pretty print to il format*)
   let to_string show_var show_expr (s : (Var.t, Var.t, BasilExpr.t) t) =
     let param_list l =
       if Params.M.is_empty l then ""
@@ -180,35 +186,42 @@ module Stmt = struct
 end
 
 module Block = struct
+  (** a phi node representing the join of incoming edges assigned to a lhs
+      variable*)
   type 'var phi = Phi of { lhs : 'var; rhs : (ID.t * 'var) list }
   [@@deriving eq, ord, show]
 
+  type ('v, 'e) stmt_list = ('v, 'v, 'e) Stmt.t Vector.ro_vector
+
   type ('v, 'e) t = {
-    id : ID.t;
+    id : ID.t;  (** the block identfier *)
     phis : 'v phi list;
-    stmts : ('v, 'v, 'e) Stmt.t list;
+        (** List of phi nodes simultaneously assigning each input variable *)
+    stmts : ('v, 'e) stmt_list;  (** statement list *)
   }
-  [@@deriving eq, ord]
+
+  let equal _ _ a b = ID.equal a.id b.id
+  let compare _ _ a b = ID.compare a.id b.id
 
   let to_string b =
     let stmts =
-      List.map
-        ~f:(fun stmt -> Stmt.to_string Var.to_string BasilExpr.to_string stmt)
+      Vector.map
+        (fun stmt -> Stmt.to_string Var.to_string BasilExpr.to_string stmt)
         b.stmts
-      |> String.concat ~sep:";\n  "
+      |> Vector.to_iter
+      |> String.concat_iter ~sep:";\n  "
     in
     Printf.sprintf "block %d [\n  %s]\n" b.id stmts
 
   let fold_stmt_forwards ~(phi : 'acc -> 'v phi list -> 'acc)
       ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc) (i : 'a) (b : ('v, 'e) t) :
       'acc =
-    List.fold_left ~f ~init:(phi i b.phis) b.stmts
+    Iter.fold f (phi i b.phis) (Vector.to_iter b.stmts)
 
   let fold_stmt_backwards ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc)
       ~(phi : 'acc -> 'v phi list -> 'acc) ~(init : 'a) (b : ('v, 'e) t) : 'acc
       =
-    List.fold_right ~f:(fun stmt acc -> f acc stmt) ~init b.stmts |> fun e ->
-    phi e b.phis
+    Iter.fold f init (Vector.to_iter_rev b.stmts) |> fun e -> phi e b.phis
 end
 
 module Procedure = struct
@@ -285,18 +298,11 @@ module Procedure = struct
       gensym_bloc = Fix.Gensym.make ();
     }
 
-  (*
-  let update_block_by_index p (b : ('a, 'b) Block.t) =
-    let i =
-      Hashtbl.get p.block_i b.id |> Option.get_exn_or "update nonexistent block"
-    in
-    Vector.set p.blocks i b
-    *)
-
   let fresh_block p ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
       ?(successors = []) () =
     let open Block in
     let id = p.gensym_bloc () in
+    let stmts = Vector.of_list stmts in
     let b = Edge.(Block { id; phis; stmts }) in
     let open Vert in
     G.add_vertex p.graph (Begin id);
@@ -309,7 +315,15 @@ module Procedure = struct
     let open Vert in
     let fr = End from in
     let id = p.gensym_bloc () in
-    let b = Edge.(Block { id; phis = []; stmts = [ Instr_Return { args } ] }) in
+    let b =
+      Edge.(
+        Block
+          {
+            id;
+            phis = [];
+            stmts = Vector.of_list [ Stmt.(Instr_Return { args }) ];
+          })
+    in
     G.add_edge_e p.graph (fr, b, Return)
 
   let get_entry_block p id =
