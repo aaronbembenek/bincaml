@@ -21,11 +21,10 @@ module AbstractExpr = struct
 
   let id a b = a
   let fold f b o = fold id id id id id f b o
-  let omap = map
 
   let map f e =
     let id a = a in
-    omap id id id id id f e
+    map id id id id id f e
 
   let hash hash e1 =
     let hash_const = Hashtbl.hash in

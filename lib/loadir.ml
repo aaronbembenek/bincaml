@@ -25,7 +25,6 @@ module BasilASTLoader = struct
     | LBlock of
         (string
         * Program.stmt list
-        * Program.call option
         * [ `Return of Program.e list | `Goto of string list | `None ])
 
   let failure x = failwith "Undefined case." (* x discarded *)
@@ -144,9 +143,9 @@ module BasilASTLoader = struct
         let blocks_id =
           List.map
             (function
-              | LBlock (name, stmts, call, succ) ->
+              | LBlock (name, stmts, succ) ->
                   let stmts = stmts in
-                  (name, Procedure.fresh_block p ~stmts ?call ()))
+                  (name, Procedure.fresh_block p ~stmts ()))
             blocks
         in
         let block_label_id = StringMap.of_list blocks_id in
@@ -157,7 +156,7 @@ module BasilASTLoader = struct
         (* add intraproc edges*)
         List.iter
           (function
-            | LBlock (name, _, call, succ) -> (
+            | LBlock (name, _, succ) -> (
                 match succ with
                 | `Goto tgts ->
                     let f = StringMap.find name block_label_id in
@@ -199,7 +198,6 @@ module BasilASTLoader = struct
   and trans_stmt (p_st : load_st) (x : BasilIR.AbsBasilIR.stmtWithAttrib) =
     let stmt = match x with StmtWithAttrib1 (stmt, _) -> stmt in
     let open Stmt in
-    let open Call in
     match stmt with
     | Stmt_SingleAssign (Assignment1 (lvar, expr)) ->
         `Stmt (Instr_Assign [ (transLVar lvar, trans_expr expr) ])
@@ -297,22 +295,12 @@ module BasilASTLoader = struct
           statements,
           jump,
           endlist ) ->
-        let last_stmt = List.last 1 statements |> List.head_opt in
-        let statements = List.take (List.length statements - 1) statements in
         let stmts =
           List.map (trans_stmt prog) statements
-          |> List.map (function
-            | `Call c -> failwith "call in incorrect position"
-            | `Stmt c -> c)
-        in
-        let st, call =
-          match Option.map (trans_stmt prog) last_stmt with
-          | Some (`Call c) -> ([], Some c)
-          | Some (`Stmt c) -> ([ c ], None)
-          | None -> ([], None)
+          |> List.map (function `Call c -> c | `Stmt c -> c)
         in
         let succ = trans_jump jump in
-        LBlock (name, stmts @ st, call, succ)
+        LBlock (name, stmts, succ)
 
   and param_to_lvar (pp : params) : Var.t =
     match pp with

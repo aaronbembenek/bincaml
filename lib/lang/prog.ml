@@ -49,7 +49,7 @@ module Params = struct
   let show_actual a =
     M.to_list a
     |> List.map ~f:(function k, v ->
-           Printf.sprintf "%s -> %s" k (BasilExpr.to_string v))
+        Printf.sprintf "%s -> %s" k (BasilExpr.to_string v))
     |> String.concat ~sep:", "
     |> fun x -> "(" ^ x ^ ")"
 
@@ -58,7 +58,7 @@ module Params = struct
   let show_formal (a : formal) =
     M.to_list a
     |> List.map ~f:(function k, v ->
-           Printf.sprintf "%s -> %s" k (Var.to_string v))
+        Printf.sprintf "%s -> %s" k (Var.to_string v))
     |> String.concat ~sep:", "
     |> fun x -> "(" ^ x ^ ")"
 
@@ -67,53 +67,11 @@ module Params = struct
   let show_lhs (a : lhs) =
     M.to_list a
     |> List.map ~f:(function k, v ->
-           Printf.sprintf "%s <- %s" (Var.to_string v) k)
+        Printf.sprintf "%s <- %s" (Var.to_string v) k)
     |> String.concat ~sep:", "
     |> fun x -> "(" ^ x ^ ")"
 
   let pp_lhs fmt a = Format.pp_print_string fmt (show_lhs a)
-end
-
-module Call = struct
-  type ('lvar, 'expr) t =
-    | Instr_Return of { args : 'expr Params.M.t }
-    | Instr_Call of {
-        lhs : 'lvar Params.M.t;
-        procid : ID.t;
-        args : 'expr Params.M.t;
-      }
-    | Instr_IndirectCall of { target : 'expr }
-  [@@deriving eq, ord, map]
-
-  let fold ~f_lvar ~f_rvar ~f_expr init e =
-    match e with
-    | Instr_IndirectCall { target } -> f_expr init target
-    | Instr_Call { lhs; procid; args } ->
-        let args = Params.M.to_list args |> List.map ~f:snd in
-        let lhs = Params.M.to_list lhs |> List.map ~f:snd in
-        List.fold_left ~f:f_expr ~init args |> fun i ->
-        List.fold_left ~f:f_lvar ~init:i lhs
-    | Instr_Return { args } ->
-        let args = Params.M.to_list args |> List.map ~f:snd in
-        List.fold_left ~f:f_expr ~init args
-
-  let to_string c =
-    let param_list l =
-      if Params.M.is_empty l then ""
-      else
-        "("
-        ^ (Params.M.to_list l
-          |> List.map ~f:(function k, v -> k ^ " -> " ^ v)
-          |> String.concat ~sep:", ")
-        ^ ")"
-    in
-    let c = map Var.to_string BasilExpr.to_string c in
-    match c with
-    | Instr_Call { lhs; procid; args } ->
-        let n = Int.to_string procid in
-        param_list lhs ^ " := call " ^ n ^ param_list args
-    | Instr_Return { args } -> "return " ^ param_list args
-    | Instr_IndirectCall { target } -> "indirect_call " ^ target
 end
 
 module Stmt = struct
@@ -140,34 +98,56 @@ module Stmt = struct
         value : 'expr;
         endian : endian;
       }
+    | Instr_Return of { args : 'expr Params.M.t }
+    | Instr_Call of {
+        lhs : 'lvar Params.M.t;
+        procid : ID.t;
+        args : 'expr Params.M.t;
+      }
+    | Instr_IndirectCall of { target : 'expr }
   [@@deriving eq, ord, map]
 
   let map ~f_lvar ~f_expr e =
     let f_rvar v = f_expr (BasilExpr.rvar v) in
     map f_lvar f_rvar f_expr e
 
-  (** TODO: this isn't really a sensible operation I think; would probably make
-      more sense to just have a 'subexprs' and 'lvars' functions (which return
-      iters)*)
-  let fold ~(f_lvar : 'a -> 'lv -> 'a) ~(f_rvar : 'a -> 'v -> 'a)
-      ~(f_expr : 'a -> 'e -> 'a) ~(init : 'a) (e : ('lv, 'v, 'e) t) : 'a =
-    match e with
-    | Instr_Assign ls ->
-        List.fold_left ~f:f_expr ~init (List.map ~f:snd ls) |> fun i ->
-        List.fold_left ~f:f_lvar ~init:i (List.map ~f:fst ls)
-    | Instr_Assert { body } -> f_expr init body
-    | Instr_Assume { body } -> f_expr init body
-    | Instr_Load { lhs; mem; addr; endian } ->
-        f_expr init addr |> fun i ->
-        f_rvar i mem |> fun i -> f_lvar i lhs
+  let iter_mem_access stmt =
+    match stmt with
+    | Instr_Load { lhs; mem; addr; endian } -> Iter.singleton mem
+    | Instr_Store { mem; addr; value; endian } -> Iter.singleton mem
+    | _ -> Iter.empty
+
+  let iter_mem_store stmt =
+    match stmt with
+    | Instr_Store { mem; addr; value; endian } -> Iter.singleton mem
+    | _ -> Iter.empty
+
+  let iter_rexpr stmt =
+    let open Iter.Infix in
+    match stmt with
+    | Instr_Assign ls -> List.to_iter ls >|= snd
+    | Instr_Assert { body } -> Iter.singleton body
+    | Instr_Assume { body } -> Iter.singleton body
+    | Instr_Load { lhs; mem; addr; endian } -> Iter.singleton addr
     | Instr_Store { mem; addr; value; endian } ->
-        f_expr init value |> fun i ->
-        f_expr i addr |> fun i -> f_rvar i mem
-    | Instr_IntrinCall { lhs; name; args } ->
-        let args = Params.M.to_list args |> List.map ~f:snd in
-        let lhs = Params.M.to_list lhs |> List.map ~f:snd in
-        List.fold_left ~f:f_expr ~init args |> fun i ->
-        List.fold_left ~f:f_lvar ~init:i lhs
+        Iter.singleton value <+> Iter.singleton addr
+    | Instr_IntrinCall { lhs; name; args } -> Params.M.to_iter args >|= snd
+    | Instr_IndirectCall { target } -> Iter.singleton target
+    | Instr_Call { lhs; procid; args } -> Params.M.to_iter args >|= snd
+    | Instr_Return { args } -> Params.M.to_iter args >|= snd
+
+  let iter_lvar stmt =
+    let open Iter.Infix in
+    match stmt with
+    | Instr_Assign ls -> List.to_iter ls >|= fst
+    | Instr_Assert { body } -> Iter.empty
+    | Instr_Assume { body } -> Iter.empty
+    | Instr_Load { lhs; mem; addr; endian } -> Iter.singleton lhs
+    | Instr_Store { mem; addr; value; endian } -> Iter.singleton mem
+    | Instr_IntrinCall { lhs; name; args } -> Params.M.to_iter lhs >|= snd
+    | Instr_IndirectCall { target } -> Iter.empty
+    | Instr_Call { lhs; procid; args } -> Params.M.to_iter lhs >|= snd
+    | Instr_Return { args } -> Iter.empty
 
   let to_string show_var show_expr (s : (Var.t, Var.t, BasilExpr.t) t) =
     let param_list l =
@@ -192,6 +172,11 @@ module Stmt = struct
         "store_" ^ show_endian endian ^ " " ^ addr ^ " " ^ value
     | Instr_IntrinCall { lhs; name; args } ->
         param_list lhs ^ " := call " ^ name ^ param_list args
+    | Instr_Call { lhs; procid; args } ->
+        let n = Int.to_string procid in
+        param_list lhs ^ " := call " ^ n ^ param_list args
+    | Instr_Return { args } -> "return " ^ param_list args
+    | Instr_IndirectCall { target } -> "indirect_call " ^ target
 end
 
 module Block = struct
@@ -202,22 +187,17 @@ module Block = struct
     id : ID.t;
     phis : 'v phi list;
     stmts : ('v, 'v, 'e) Stmt.t list;
-    call : ('v, 'e) Call.t option;
   }
   [@@deriving eq, ord]
 
   let to_string b =
-    let c =
-      Option.map (fun c -> Printf.sprintf ";\n  %s" (Call.to_string c)) b.call
-      |> Option.get_or ~default:""
-    in
     let stmts =
       List.map
         ~f:(fun stmt -> Stmt.to_string Var.to_string BasilExpr.to_string stmt)
         b.stmts
       |> String.concat ~sep:";\n  "
     in
-    Printf.sprintf "block %d [\n  %s%s]\n" b.id stmts c
+    Printf.sprintf "block %d [\n  %s]\n" b.id stmts
 
   let fold_stmt_forwards ~(phi : 'acc -> 'v phi list -> 'acc)
       ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc) (i : 'a) (b : ('v, 'e) t) :
@@ -314,10 +294,10 @@ module Procedure = struct
     *)
 
   let fresh_block p ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
-      ?(successors = []) ?call () =
+      ?(successors = []) () =
     let open Block in
     let id = p.gensym_bloc () in
-    let b = Edge.(Block { id; phis; stmts; call }) in
+    let b = Edge.(Block { id; phis; stmts }) in
     let open Vert in
     G.add_vertex p.graph (Begin id);
     G.add_vertex p.graph (Begin id);
@@ -329,16 +309,7 @@ module Procedure = struct
     let open Vert in
     let fr = End from in
     let id = p.gensym_bloc () in
-    let b =
-      Edge.(
-        Block
-          {
-            id;
-            phis = [];
-            stmts = [];
-            call = Some (Call.Instr_Return { args });
-          })
-    in
+    let b = Edge.(Block { id; phis = []; stmts = [ Instr_Return { args } ] }) in
     G.add_edge_e p.graph (fr, b, Return)
 
   let get_entry_block p id =
@@ -378,7 +349,6 @@ module Program = struct
   type proc = Procedure.t
   type bloc = (Var.t, BasilExpr.t) Block.t
   type stmt = (Var.t, Var.t, e) Stmt.t
-  type call = (Var.t, e) Call.t
 
   type t = {
     modulename : string;

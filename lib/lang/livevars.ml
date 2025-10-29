@@ -11,15 +11,12 @@ let show_v b =
   |> String.concat ", "
 
 let assigned_stmt (init : V.t) s : V.t =
-  let id a v = a in
   let f_lvar a v = V.add v a in
-  Stmt.fold ~f_lvar ~f_rvar:id ~f_expr:id ~init s
+  Stmt.iter_lvar s |> Iter.fold f_lvar init
 
 let free_vars_stmt (init : V.t) (s : (Var.t, Var.t, BasilExpr.t) Stmt.t) : V.t =
-  let id a v = a in
-  let f_rvar a v = V.add v a in
   let f_expr a v = V.union (BasilExpr.free_vars v) a in
-  Stmt.fold ~f_lvar:id ~f_rvar ~f_expr ~init s
+  Stmt.iter_rexpr s |> Iter.fold f_expr init
 
 let tf_block (init : V.t) (b : (Var.t, BasilExpr.t) Block.t) =
   let tf_stmt init s =
