@@ -1,4 +1,5 @@
 (executable
  (public_name ocaml_of_basil)
+ (flags -w -32)
  (name main)
  (libraries ocaml_of_basil.ast ocaml_of_basil cmdliner containers.pp containers trace trace-tef))

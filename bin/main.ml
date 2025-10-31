@@ -5,33 +5,6 @@ open Lang
 
 let () = Printexc.record_backtrace true
 
-let check fname proc =
-  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
-  let procs prog =
-    let open Program in
-    Lang.ID.Map.iter (fun i _ -> Printf.printf "%s\n" (ID.show i)) prog.procs
-  in
-  if not @@ String.equal proc "" then (
-    let id = p.prog.proc_names.get_id proc in
-
-    let p = Lang.ID.Map.find id p.prog.procs in
-    Containers.IO.with_out "before.il" (fun f ->
-        Containers_pp.Pretty.to_format (Format.of_chan f) ~width:80
-          (Lang.Prog.Procedure.pretty Lang.Var.to_string
-             Lang.Expr.BasilExpr.to_string p));
-    Lang.Cf_tx.simplify_proc_exprs p;
-    Containers.IO.with_out "after.il" (fun f ->
-        Containers_pp.Pretty.to_format (Format.of_chan f) ~width:80
-          (Lang.Prog.Procedure.pretty Lang.Var.to_string
-             Lang.Expr.BasilExpr.to_string p)))
-  (*Lang.Livevars.print_live_vars_dot Format.std_formatter p*)
-  (*let p =
-      Lang.Prog.Procedure.pretty Lang.Var.to_string
-        Lang.Expr.BasilExpr.to_string p
-    in
-    print_endline @@ Containers_pp.Pretty.to_string ~width:80 p*)
-    else procs p.prog
-
 let fname =
   let doc = "Input file name (filename.il)" in
   Arg.(required & pos 0 (some string) None & info [] ~docv:"FNAME" ~doc)
@@ -40,14 +13,63 @@ let proc =
   let doc = "proc to output" and docv = "PROC" in
   Arg.(value & opt string "" & info [ "p"; "proc" ] ~doc ~docv)
 
-let check_f = Term.(const check $ fname $ proc)
+let list_procs fname =
+  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  let procs prog =
+    let open Program in
+    Lang.ID.Map.iter (fun i _ -> Printf.printf "%s\n" (ID.show i)) prog.procs
+  in
+  procs p.prog
+
+let procs_cmd =
+  let doc = "list program print procedures " in
+  let info = Cmd.info "procs" ~version:"alpha" ~doc in
+  Cmd.v info Term.(const list_procs $ fname)
+
+let print_cfg fname proc =
+  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  let id = p.prog.proc_names.get_id proc in
+  let p = Lang.ID.Map.find id p.prog.procs in
+  Lang.Livevars.print_live_vars_dot Format.std_formatter p
+
+let print_cfg_cmd =
+  let doc = "print dot CFG for graph" in
+  let info = Cmd.info "dump-cfg" ~version:"alpha" ~doc in
+  Cmd.v info Term.(const print_cfg $ fname $ proc)
+
+let dump_proc fname proc =
+  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  let id = p.prog.proc_names.get_id proc in
+  let p = Lang.ID.Map.find id p.prog.procs in
+  let p =
+    Lang.Prog.Procedure.pretty Lang.Var.to_string Lang.Expr.BasilExpr.to_string
+      p
+  in
+  print_endline @@ Containers_pp.Pretty.to_string ~width:80 p
+
+let dump_proc_cmd =
+  let doc = "print il for procedure" in
+  let info = Cmd.info "dump-il" ~version:"alpha" ~doc in
+  Cmd.v info Term.(const dump_proc $ fname $ proc)
+
+let print_callgraph fname =
+  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  let g = Program.CallGraph.make_call_graph p.prog in
+  Viscfg.PrintCallgraph.output_graph stdout g
+
+let callgraph_cmd =
+  let doc = "print dot callgraph for prog" in
+  let info = Cmd.info "dump-callgraph" ~version:"alpha" ~doc in
+  Cmd.v info Term.(const print_callgraph $ fname)
 
 let cmd =
+  let doc = "obasil" in
+  Cmd.group (Cmd.info "info" ~version:"%%VERSION%%" ~doc)
+  @@ [ procs_cmd; dump_proc_cmd; print_cfg_cmd; callgraph_cmd ]
+
+let main () =
   Trace.set_process_name "main";
   Trace.set_thread_name "t1";
-  let doc = "obasil" in
-  let info = Cmd.info "obasil" ~version:"alpha" ~doc in
-  Cmd.v info check_f
+  exit (Cmd.eval cmd)
 
-let main () = exit (Cmd.eval cmd)
 let () = Trace_tef.with_setup ~out:(`File "trace.json") () @@ fun () -> main ()

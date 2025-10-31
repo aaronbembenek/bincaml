@@ -102,9 +102,15 @@ module BasilASTLoader = struct
           ProcDef_Empty ) ->
         let formal_in_params_order = List.map param_to_formal in_params in
         let formal_out_params_order = List.map param_to_formal out_params in
-        let _ = prog.prog.proc_names.decl_or_get id in
+        let proc_id = prog.prog.proc_names.decl_or_get id in
         Hashtbl.add prog.params_order id
           (formal_in_params_order, formal_out_params_order);
+        let p = Procedure.create proc_id () in
+        let prog =
+          map_prog
+            (fun pr -> { pr with procs = ID.Map.add proc_id p pr.procs })
+            prog
+        in
         prog
     | Decl_Proc
         ( ProcIdent (id_pos, id),

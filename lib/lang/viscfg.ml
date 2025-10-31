@@ -67,7 +67,7 @@ module Make (L : Labelling) = Graph.Graphviz.Dot (struct
       | Some x ->
           let l = n ^ "\\l :     " ^ x ^ "\\l" in
           [ `Label l ]
-      | _ -> []
+      | _ -> [ `Label n ]
     in
     [ `Shape `Box; `Fontname "Mono" ] @ l
 
@@ -82,4 +82,40 @@ let dot_labels label_fun =
 
 module Dot = Make (struct
   let labelling v = None
+end)
+
+module PrintCallgraph = Graph.Graphviz.Dot (struct
+  include Program.CallGraph.G
+  open Program.CallGraph.Vert
+  open Program.CallGraph.Edge
+
+  let default_vertex_attributes _ = []
+  let graph_attributes _ = []
+
+  let edge_attributes (e : E.t) =
+    match e with
+    | _, Proc id, _ -> [ `Label ("proc " ^ ID.to_string id); `Fontname "Mono" ]
+    | _ -> [ `Fontname "Mono" ]
+
+  let default_edge_attributes _ = []
+  let get_subgraph _ = None
+
+  let vertex_attributes v =
+    let n =
+      match v with
+      | ProcBegin i -> "begin" ^ ID.to_string i
+      | ProcReturn i -> "return" ^ ID.to_string i
+      | ProcExit i -> "exit" ^ ID.to_string i
+      | Entry -> "entry"
+      | Return -> "return"
+    in
+    [ `Shape `Box; `Fontname "Mono"; `Label n ]
+
+  let vertex_name (v : Program.CallGraph.Vert.t) =
+    match v with
+    | ProcBegin i -> "begin" ^ (ID.index i |> Int.to_string)
+    | ProcReturn i -> "return" ^ (ID.index i |> Int.to_string)
+    | ProcExit i -> "exit" ^ (ID.index i |> Int.to_string)
+    | Entry -> "entry"
+    | Return -> "return"
 end)

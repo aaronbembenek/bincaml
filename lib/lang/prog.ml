@@ -388,6 +388,9 @@ module Procedure = struct
     G.remove_edge p.graph (Begin id) (End id);
     G.add_edge_e p.graph (Begin id, Block block, End id)
 
+  let replace_edge p id (block : (Var.t, BasilExpr.t) Block.t) =
+    update_block p id block
+
   let decl_local p v =
     let _ = p.local_ids.decl_or_get (Var.name v) in
     Var.Decls.add p.locals v;
@@ -505,4 +508,83 @@ module Program = struct
       procs = ID.Map.empty;
       proc_names = ID.make_gen ();
     }
+
+  module CallGraph = struct
+    module Vert = struct
+      type t =
+        | ProcBegin of ID.t
+        | ProcReturn of ID.t
+        | ProcExit of ID.t
+        | Entry
+        | Return (*| Exit*)
+      [@@deriving show { with_path = false }, eq, ord]
+
+      let hash (v : t) =
+        let h = Hash.pair Hash.int Hash.int in
+        Hash.map
+          (function
+            | ProcBegin i -> (31, ID.hash i)
+            | ProcReturn i -> (37, ID.hash i)
+            | ProcExit i -> (41, ID.hash i)
+            | o -> (Hashtbl.hash o, 1))
+          h v
+    end
+
+    module Edge = struct
+      type t = Proc of ID.t | Nop
+      [@@deriving show { with_path = false }, eq, ord]
+
+      let default = Nop
+    end
+
+    module G =
+      Graph.Imperative.Digraph.ConcreteBidirectionalLabeled (Vert) (Edge)
+
+    let make_call_graph t =
+      let called_by (p : proc) =
+        Procedure.blocks_to_list p |> List.to_iter |> Iter.map snd
+        |> Iter.flat_map Block.stmts_iter
+        |> Iter.filter_map (function
+          | Stmt.Instr_Call { procid } -> Some procid
+          | _ -> None)
+        |> ID.Set.of_iter
+      in
+      let calls =
+        ID.Map.to_iter t.procs
+        |> Iter.map (function pid, proc -> (pid, called_by proc))
+      in
+      let graph = G.create ~size:(ID.Map.cardinal t.procs) () in
+      let open Edge in
+      let open Vert in
+      let proc_edges =
+        Iter.map
+          (function id -> (ProcBegin id, Proc id, ProcReturn id))
+          (ID.Map.keys t.procs)
+      in
+      Iter.iter (G.add_edge_e graph) proc_edges;
+      t.entry_proc
+      |> Option.iter (fun entry ->
+          List.iter (G.add_edge_e graph)
+            [ (Entry, Nop, ProcBegin entry); (ProcReturn entry, Nop, Return) ]);
+      let call_dep caller callee =
+        Iter.of_list
+          [
+            (ProcBegin caller, Nop, ProcBegin callee);
+            (ProcReturn callee, Nop, ProcReturn caller);
+          ]
+      in
+      let call_dep_edges =
+        Iter.flat_map
+          (function
+            | proc, called ->
+                Iter.append
+                  (Iter.singleton (ProcBegin proc, Proc proc, ProcReturn proc))
+                  (Iter.flat_map
+                     (function c -> call_dep proc c)
+                     (ID.Set.to_iter called)))
+          calls
+      in
+      Iter.iter (G.add_edge_e graph) call_dep_edges;
+      graph
+  end
 end

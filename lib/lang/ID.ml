@@ -22,6 +22,7 @@ end
 
 include ID
 module Map = Map.Make (ID)
+module Set = Set.Make (ID)
 
 type cache = {
   names : M.t ref;
