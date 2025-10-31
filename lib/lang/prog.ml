@@ -174,7 +174,7 @@ module Block = struct
       variable*)
 
   module V = struct
-    type 'a t = 'a Vector.vector
+    type 'a t = 'a Vector.ro_vector
 
     let equal e a b = Vector.equal e a b
     let compare e a b = Vector.compare e a b
