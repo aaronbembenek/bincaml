@@ -67,7 +67,7 @@ module BasilASTLoader = struct
             Program.decl_global p
               (Var.create
                  (unsafe_unsigil (`Global bident))
-                 ~pure:false (transType type'));
+                 ~pure:false ~scope:Global (transType type'));
             p)
           prog
     | Decl_UnsharedMem (bident, type') ->
@@ -76,7 +76,7 @@ module BasilASTLoader = struct
             Program.decl_global p
               (Var.create
                  (unsafe_unsigil (`Global bident))
-                 ~pure:true (transType type'));
+                 ~pure:true ~scope:Global (transType type'));
             p)
           prog
     | Decl_Var (bident, type') ->
@@ -85,7 +85,7 @@ module BasilASTLoader = struct
             Program.decl_global p
               (Var.create
                  (unsafe_unsigil (`Global bident))
-                 ~pure:true (transType type'));
+                 ~pure:true ~scope:Global (transType type'));
             p)
           prog
     | Decl_UninterpFun (attrDefList, glident, argtypes, rettype) -> prog
@@ -278,7 +278,7 @@ module BasilASTLoader = struct
     List.map
       (function
         | LocalVar1 (i, t) ->
-            Var.create (unsafe_unsigil (`Local i)) (transType t))
+            Var.create ~scope:Local (unsafe_unsigil (`Local i)) (transType t))
       lvs
 
   and trans_jump (x : BasilIR.AbsBasilIR.jumpWithAttrib) =
@@ -294,12 +294,18 @@ module BasilASTLoader = struct
     let p = Option.get_exn_or "didnt set proc" prog.curr_proc in
     match x with
     | LVar_Local (LocalVar1 (bident, type')) ->
-        let v = Var.create (unsafe_unsigil (`Local bident)) (transType type') in
+        let v =
+          Var.create ~scope:Local
+            (unsafe_unsigil (`Local bident))
+            (transType type')
+        in
         let _ = Procedure.decl_local p v in
         v
     | LVar_Global (GlobalVar1 (bident, type')) ->
         let v =
-          Var.create (unsafe_unsigil (`Global bident)) (transType type')
+          Var.create ~scope:Global
+            (unsafe_unsigil (`Global bident))
+            (transType type')
         in
         (*let _ = Program.decl_global prog.prog v in*)
         v
@@ -350,10 +356,12 @@ module BasilASTLoader = struct
     match x with
     | Expr_Global (GlobalVar1 (g, type')) ->
         BasilExpr.rvar
-        @@ Var.create (unsafe_unsigil (`Global g)) (transType type')
+        @@ Var.create ~scope:Global
+             (unsafe_unsigil (`Global g))
+             (transType type')
     | Expr_Local (LocalVar1 (g, type')) ->
         BasilExpr.rvar
-        @@ Var.create (unsafe_unsigil (`Local g)) (transType type')
+        @@ Var.create ~scope:Local (unsafe_unsigil (`Local g)) (transType type')
     | Expr_Assoc (binop, rs) -> (
         match transBoolBinOp binop with
         | #AllOps.intrin as op ->

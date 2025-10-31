@@ -3,13 +3,20 @@ open ContainersLabels
 open Value
 open Types
 
+type declaration_scope = Local | Global [@@deriving show, eq, ord]
+
 module V = struct
-  type t = { name : string; typ : Types.BType.t; pure : bool }
+  type t = {
+    name : string;
+    typ : Types.BType.t;
+    pure : bool;
+    scope : declaration_scope;
+  }
   [@@deriving eq, ord]
 
   let show (v : t) : string = Printf.sprintf "%s:%s" v.name (BType.show v.typ)
   let pp fmt (b : t) : unit = Format.pp_print_string fmt (show b)
-  let var name ?(pure = true) typ = { name; typ; pure }
+  let var name ?(pure = true) ?(scope = Local) typ = { name; typ; pure; scope }
   let hash v = Hashtbl.hash v
 end
 
@@ -23,7 +30,10 @@ let show v =
 
 let pp fmt v = Format.pp_print_string fmt (show v)
 let to_string v = V.show (Fix.HashCons.data v)
-let create name ?(pure = false) typ = H.make { name; typ; pure }
+
+let create name ?(pure = true) ?(scope = Local) typ =
+  H.make { name; typ; pure; scope }
+
 let name (e : t) = (Fix.HashCons.data e).name
 let typ (e : t) = (Fix.HashCons.data e).typ
 let pure (e : t) = (Fix.HashCons.data e).pure
