@@ -122,7 +122,7 @@ module Recursion (O : Fix) = struct
   (* mutual recursion:
     simultaneously evaluate two catamorphisms which can depend on each-other's results.
      *)
-  let rec mutu alg1 alg2 =
+  let rec mutu ?(cata = cata) alg1 alg2 =
     let alg x = (alg1 x, alg2 x) in
     (fst % cata alg, snd % cata alg)
 
@@ -130,10 +130,12 @@ module Recursion (O : Fix) = struct
 
      Perform two recursion simultaneously, passing the result of the first to the second
      *)
-  let rec zygo alg1 alg2 e = snd (mutu (AbstractExpr.map fst %> alg1) alg2) e
+  let zygo ?(cata = cata) alg1 alg2 e =
+    snd (mutu ~cata (AbstractExpr.map fst %> alg1) alg2) e
 
   (* zygo with the order swapped *)
-  let rec zygo_l alg2 alg1 = fst (mutu alg1 (AbstractExpr.map snd %> alg2))
+  let zygo_l ?(cata = cata) alg2 alg1 =
+    fst (mutu ~cata alg1 (AbstractExpr.map snd %> alg2))
 
   let map_fold2 ~f ~alg1 ~alg2 r e =
     let alg r x = (alg1 r x, alg2 (AbstractExpr.map snd x)) in
@@ -288,7 +290,9 @@ module BasilExpr = struct
     | Binding (vars, b) -> Types.BType.uncurry vars b
 
   let type_of e = cata type_alg e
-  let fold_with_type (alg : 'e abstract_expr -> 'a) = zygo_l type_alg alg
+
+  let fold_with_type ?(cata = cata) (alg : 'e abstract_expr -> 'a) =
+    zygo_l ~cata type_alg alg
 
   (* constructor helpers *)
   let intconst (v : PrimInt.t) : t = const (`Integer v)
@@ -298,15 +302,16 @@ module BasilExpr = struct
   let bv_of_int ~(size : int) (v : int) : t =
     const (`Bitvector (PrimQFBV.of_int ~size v))
 
-  let rewrite ~(rw_fun : t abstract_expr -> t option) (expr : t) =
+  let rewrite ?(cata = cata) ~(rw_fun : t abstract_expr -> t option) (expr : t)
+      =
     let rw_alg e =
       let orig s = fix s in
       match rw_fun e with Some e -> e | None -> orig e
     in
     cata rw_alg expr
 
-  let rewrite_typed (f : (t * Types.BType.t) abstract_expr -> t option)
-      (expr : t) =
+  let rewrite_typed ?(cata = cata)
+      (f : (t * Types.BType.t) abstract_expr -> t option) (expr : t) =
     let rw_alg e =
       let orig s = fix @@ AbstractExpr.map fst s in
       match f e with Some e -> e | None -> orig e
@@ -314,16 +319,16 @@ module BasilExpr = struct
     fold_with_type rw_alg expr
 
   (** typed expression rewriter *)
-  let rewrite_typed (f : (t * Types.BType.t) abstract_expr -> t option)
-      (expr : t) =
+  let rewrite_typed ?(cata = cata)
+      (f : (t * Types.BType.t) abstract_expr -> t option) (expr : t) =
     let rw_alg e =
       let orig s = fix @@ AbstractExpr.map fst s in
       match f e with Some e -> e | None -> orig e
     in
-    fold_with_type rw_alg expr
+    fold_with_type ~cata rw_alg expr
 
   (** typed rewriter that expands two layers deep into the expression *)
-  let rewrite_typed_two
+  let rewrite_typed_two ?(cata = cata)
       (f : (t abstract_expr * Types.BType.t) abstract_expr -> t option)
       (expr : t) =
     let orig s = fix @@ AbstractExpr.map fst s in
@@ -331,7 +336,7 @@ module BasilExpr = struct
       let unfold = AbstractExpr.map (fun (e, t) -> (unfix e, t)) e in
       match f unfold with Some e -> e | None -> orig e
     in
-    fold_with_type rw_alg expr
+    fold_with_type ~cata rw_alg expr
 
   let zero_extend ~n_prefix_bits (e : t) : t =
     unexp ~op:(`ZeroExtend n_prefix_bits) e
@@ -346,4 +351,29 @@ module BasilExpr = struct
   let forall ~bound p = unexp ~op:`Forall (binding bound p)
   let exists ~bound p = unexp ~op:`Exists (binding bound p)
   let boolnot e = unexp ~op:`BoolNOT e
+
+  module Memoiser = Fix.Memoize.ForHashedType (struct
+    type expr = t
+    type t = expr
+
+    let equal = Fix.HashCons.equal
+    let hash = Fix.HashCons.hash
+  end)
+
+  let cata_memo (alg : 'a abstract_expr -> 'a) =
+    let g r t = AbstractExpr.map r (unfix t) |> alg in
+    Memoiser.fix g
+
+  (** memoised rewriter; will likely be slower than without memoisation unless
+      there is significant sharing*)
+  let rewrite_memo = rewrite ~cata:cata_memo
+
+  (** memoised typed rewriter; will likely be slower than without memoisation
+      unless there is significant sharing*)
+  let rewrite_typed_memo = rewrite_typed ~cata:cata_memo
+
+  (** memoised typed rewriter that unfolds an extre levels of each subexpr; will
+      likely be slower than without memoisation unless there is significant
+      sharing*)
+  let rewrite_typed_two_memo = rewrite_typed_two ~cata:cata_memo
 end
