@@ -48,7 +48,7 @@ let print_cfg fname proc =
   CCUnix.with_out "before.il" ~f:(fun c ->
       Lang.ID.Map.iter (fun i p -> print_proc c p) prg.prog.procs);
   Lang.ID.Map.iter
-    (fun i p -> Lang.Livevars.DSE.sane_transform p)
+    (fun i p -> Transforms.Livevars.DSE.sane_transform p)
     prg.prog.procs;
   CCUnix.with_out "after.il" ~f:(fun c ->
       Lang.ID.Map.iter (fun i p -> print_proc c p) prg.prog.procs)
@@ -67,7 +67,7 @@ let print_callgraph fname =
   let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
   let g = Program.CallGraph.make_call_graph p.prog in
   Viscfg.PrintCallgraph.output_graph stdout g;
-  let _ = Livevars.Interproc.analyse_prog p.prog in
+  let _ = Transforms.Livevars.Interproc.analyse_prog p.prog in
   ()
 
 let callgraph_cmd =

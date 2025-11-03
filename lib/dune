@@ -1,4 +1,5 @@
 (library
  (name ocaml_of_basil)
  (flags -w -27)
- (libraries basil_ast ocaml_of_basil.ast trace))
+ (modules loadir passes )
+ (libraries basil_ast lang transforms ocaml_of_basil.ast trace))

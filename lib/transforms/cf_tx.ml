@@ -1,10 +1,11 @@
+open Lang
 open Prog
 open Expr_eval
 open Containers
 
 let identity x = x
 
-let simplify_proc_exprs_replace p =
+let simplify_proc_exprs p =
   let blocks =
     Trace.with_span ~__FILE__ ~__LINE__ "blocks_list" @@ fun i ->
     Procedure.blocks_to_list p
@@ -24,3 +25,6 @@ let simplify_proc_exprs_replace p =
           Procedure.update_block p id { b with stmts }
       | _ -> ())
     blocks
+
+let simplify_prog_exprs (p : Program.t) =
+  ID.Map.iter (fun id proc -> simplify_proc_exprs proc) p.procs

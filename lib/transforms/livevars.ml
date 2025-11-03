@@ -1,4 +1,5 @@
 open Containers
+open Lang
 open Expr
 open Prog
 open Types
@@ -210,7 +211,7 @@ module DSE = struct
             is_assign
             && Stmt.iter_lvar s
                |> Iter.for_all (fun v ->
-                      Var.is_local v && (not @@ V.mem v live))
+                   Var.is_local v && (not @@ V.mem v live))
           in
           let live = V.filter Var.is_local @@ tf_stmt_live live s in
           let s = if dead_store then acc else s :: acc in
