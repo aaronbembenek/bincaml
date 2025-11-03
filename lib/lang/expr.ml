@@ -215,7 +215,7 @@ end
 module BasilExpr = struct
   open AllOps
 
-  module E = struct
+  module EHashed = struct
     include AllOps
 
     type var = Var.t
@@ -247,6 +247,22 @@ module BasilExpr = struct
 
     let fix i = H.make (E i)
     let unfix i = match Fix.HashCons.data i with E i -> i
+  end
+
+  module E = struct
+    include AllOps
+
+    type var = Var.t
+    type 'a cell = 'a Fix.HashCons.cell
+
+    type t = expr_node_v
+
+    and expr_node_v =
+      | E of (const, Var.t, unary, binary, intrin, t) AbstractExpr.t
+    [@@unboxed] [@@deriving eq, ord]
+
+    let fix i = E i
+    let unfix i = match i with E i -> i
   end
 
   include E
@@ -352,6 +368,7 @@ module BasilExpr = struct
   let exists ~bound p = unexp ~op:`Exists (binding bound p)
   let boolnot e = unexp ~op:`BoolNOT e
 
+  (*
   module Memoiser = Fix.Memoize.ForHashedType (struct
     type expr = t
     type t = expr
@@ -376,4 +393,5 @@ module BasilExpr = struct
       likely be slower than without memoisation unless there is significant
       sharing*)
   let rewrite_typed_two_memo = rewrite_typed_two ~cata:cata_memo
+  *)
 end
