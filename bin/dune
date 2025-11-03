@@ -2,4 +2,5 @@
  (public_name ocaml_of_basil)
  (flags -w -32)
  (name main)
+ (modules main script)
  (libraries ocaml_of_basil.ast ocaml_of_basil cmdliner containers.pp containers containers.unix trace trace-tef))

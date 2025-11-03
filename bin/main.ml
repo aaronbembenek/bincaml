@@ -63,22 +63,31 @@ let dump_proc_cmd =
   let info = Cmd.info "dump-il" ~version:"alpha" ~doc in
   Cmd.v info Term.(const dump_proc $ fname $ proc)
 
-let print_callgraph fname =
-  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
-  let g = Program.CallGraph.make_call_graph p.prog in
-  Viscfg.PrintCallgraph.output_graph stdout g;
-  let _ = Transforms.Livevars.Interproc.analyse_prog p.prog in
+let run_script fname =
+  let st = Script.init_st in
+  let _ =
+    CCIO.with_in fname (fun c ->
+        let iter = CCIO.read_lines_iter c in
+        Iter.fold (fun acc l -> Script.of_str acc l) st iter)
+  in
   ()
 
+(*
 let callgraph_cmd =
   let doc = "print dot callgraph for prog" in
   let info = Cmd.info "dump-callgraph" ~version:"alpha" ~doc in
   Cmd.v info Term.(const print_callgraph $ fname)
+  *)
+
+let script_cmd =
+  let doc = "run script" in
+  let info = Cmd.info "script" ~version:"alpha" ~doc in
+  Cmd.v info Term.(const run_script $ fname)
 
 let cmd =
   let doc = "obasil" in
   Cmd.group (Cmd.info "info" ~version:"%%VERSION%%" ~doc)
-  @@ [ procs_cmd; dump_proc_cmd; print_cfg_cmd; callgraph_cmd ]
+  @@ [ procs_cmd; dump_proc_cmd; print_cfg_cmd; script_cmd ]
 
 let main () =
   Trace.set_process_name "main";

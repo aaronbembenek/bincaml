@@ -28,23 +28,6 @@ module PassManager = struct
   let batch_of_list pass =
     List.map (fun n -> List.find (fun t -> String.equal t.name n) passes) pass
 
-  let of_sexpr (s : Containers.Sexp.t) =
-    let ts =
-      match s with
-      | `List (`Atom "run-transform" :: ns) ->
-          ns
-          |> List.map (function
-            | `Atom n -> n
-            | _ -> failwith "expected atom transform name")
-      | `List (`Atom "run-transforms" :: ns) ->
-          ns
-          |> List.map (function
-            | `Atom n -> n
-            | _ -> failwith "expected atom transform name")
-      | _ -> failwith "not a transform batch clause"
-    in
-    batch_of_list ts
-
   let run_transform (p : Program.t) (tf : pass) =
     Trace.with_span ~__FILE__ ~__LINE__ ("transform-prog::" ^ tf.name)
     @@ fun _ ->
@@ -61,5 +44,5 @@ module PassManager = struct
   let construct_batch (s : t) (passes : string list) =
     List.map (fun p -> SMap.find p s.avail) passes
 
-  let run_batch (batch : pass list) prog = List.iter (run_transform prog)
+  let run_batch (batch : pass list) prog = List.iter (run_transform prog) batch
 end
