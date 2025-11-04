@@ -2,4 +2,4 @@
  (name ocaml_of_basil)
  (flags -w -27)
  (modules loadir passes )
- (libraries basil_ast lang transforms ocaml_of_basil.ast trace))
+ (libraries BasilIR lang transforms ocaml_of_basil.ast trace))

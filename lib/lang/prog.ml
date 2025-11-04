@@ -140,11 +140,21 @@ module Stmt = struct
   let pretty show_lvar show_var show_expr s =
     let open Containers_pp in
     let open Containers_pp.Infix in
-    let param_list l =
+    let r_param_list l =
       if Params.M.is_empty l then text "()"
       else
-        let l = Params.M.to_list l |> List.map (fun (i, t) -> t) in
+        let l =
+          Params.M.to_list l |> List.map (fun (i, t) -> text i ^ text "=" ^ t)
+        in
         bracket "(" (nest 2 (fill (text "," ^ newline_or_spaces 1) l)) ")"
+    in
+    let l_param_list l =
+      if Params.M.is_empty l then text ""
+      else
+        let l =
+          Params.M.to_list l |> List.map (fun (i, t) -> t ^ text "=" ^ text i)
+        in
+        bracket "(" (nest 2 (fill (text "," ^ newline_or_spaces 1) l)) ") := "
     in
     let show_lvar v = text @@ show_lvar v in
     let show_var v = text @@ show_var v in
@@ -153,7 +163,8 @@ module Stmt = struct
     match e with
     | Instr_Assign ls ->
         let ls = List.map (function lhs, rhs -> lhs ^ text " := " ^ rhs) ls in
-        fill (text " ,") ls
+        let b = fill (text " ,") ls in
+        if List.length ls > 1 then bracket "(" b ")" else b
     | Instr_Assert { body } -> text "assert " ^ body
     | Instr_Assume { body; branch = false } -> text "assume " ^ body
     | Instr_Assume { body; branch = true } -> text "guard " ^ body
@@ -167,23 +178,22 @@ module Stmt = struct
         ^ text " " ^ mem ^ text " " ^ addr ^ text " " ^ value ^ text " "
         ^ int cells
     | Instr_IntrinCall { lhs; name; args } when Params.M.cardinal lhs = 0 ->
-        append_l ~sep:nil [ text "call "; text name; param_list args ]
+        append_l ~sep:nil [ text "call "; text name; r_param_list args ]
     | Instr_IntrinCall { lhs; name; args } ->
         append_l ~sep:nil
           [
-            param_list lhs;
-            newline ^ text ":= call ";
+            l_param_list lhs;
+            newline ^ text "call ";
             text name;
-            param_list args;
+            r_param_list args;
           ]
-    | Instr_Call { lhs; procid; args } when Params.M.cardinal lhs = 0 ->
-        let n = ID.to_string procid in
-        append_l ~sep:nil [ text "call "; text n; param_list args ]
     | Instr_Call { lhs; procid; args } ->
         let n = ID.to_string procid in
         append_l ~sep:nil
-          [ param_list lhs; newline ^ text ":= call "; text n; param_list args ]
-    | Instr_Return { args } -> text "return " ^ param_list args
+          [
+            l_param_list lhs; newline ^ text "call "; text n; r_param_list args;
+          ]
+    | Instr_Return { args } -> text "return " ^ r_param_list args
     | Instr_IndirectCall { target } -> text "indirect_call " ^ target
 
   (** Pretty print to il format*)
@@ -444,12 +454,7 @@ module Procedure = struct
     in
     G.fold_edges_e collect_edge p.graph []
 
-  let pretty show_var show_expr p =
-    let show_lvar (v : Var.t) : string =
-      if ID.M.mem_left (Var.name v) (p.local_ids.get_declared ()) then
-        String.("var " ^ Var.to_string v)
-      else Var.to_string v
-    in
+  let pretty show_lvar show_var show_expr p =
     let open Containers_pp in
     let open Containers_pp.Infix in
     let params m =
@@ -532,7 +537,10 @@ module Program = struct
   }
 
   let proc_pretty chan p =
-    let p = Procedure.pretty Var.to_string_il_rvar Expr.BasilExpr.to_string p in
+    let p =
+      Procedure.pretty Var.to_string_il_lvar Var.to_string_il_rvar
+        Expr.BasilExpr.to_string p
+    in
     output_string chan @@ Containers_pp.Pretty.to_string ~width:80 p;
     output_string chan ";"
 
@@ -553,7 +561,8 @@ module Program = struct
       @@ globs @ n
       @ List.map
           (fun (_, p) ->
-            Procedure.pretty Var.to_string_il_rvar Expr.BasilExpr.to_string p)
+            Procedure.pretty Var.to_string_il_lvar Var.to_string_il_rvar
+              Expr.BasilExpr.to_string p)
           (ID.Map.to_list p.procs)
     in
     pretty
