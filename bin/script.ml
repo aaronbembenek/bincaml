@@ -1,10 +1,9 @@
 open Containers
 open Lang
-open Prog
 
 exception Parse
 
-let print_proc chan p = Prog.Program.output_proc_pretty chan p
+let print_proc chan p = Program.output_proc_pretty chan p
 
 let assert_atoms n args =
   assert (List.length args = n);
@@ -53,8 +52,7 @@ let of_cmd st (e : Containers.Sexp.t) =
       st
   | "write-il" ->
       let ofile = List.hd @@ assert_atoms 1 args in
-      CCIO.with_out ofile (fun c ->
-          Lang.Prog.Program.pretty_to_chan c (get_prog st));
+      CCIO.with_out ofile (fun c -> Program.pretty_to_chan c (get_prog st));
       st
   | "run-transforms" ->
       let args = assert_atoms (List.length args) args in

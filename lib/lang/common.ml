@@ -1,3 +1,5 @@
+open Containers
+
 module HashHelper = struct
   let combine acc n = (acc * 65599) + n
   let combine2 acc n1 n2 = combine (combine acc n1) n2
@@ -33,3 +35,5 @@ module type HASH_TYPE = sig
 end
 
 let identity x = x
+
+module StringMap = Map.Make (String)

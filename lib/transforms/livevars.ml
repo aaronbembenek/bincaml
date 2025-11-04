@@ -1,7 +1,6 @@
 open Containers
 open Lang
 open Expr
-open Prog
 open Types
 module V = Set.Make (Var)
 module B = Map.Make (Var)

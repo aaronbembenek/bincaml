@@ -1,4 +1,3 @@
-open Prog
 open Containers
 
 module type Labelling = sig

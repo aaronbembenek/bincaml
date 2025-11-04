@@ -4,7 +4,6 @@
  (modules
   expr
   value
-  prog
   common
   types
   var
@@ -13,6 +12,10 @@
   expr_smt
   expr_eval
   ID
+  stmt
+  block
+  procedure
+  program
   )
  (flags -w -27)
  (libraries zarith fix ocamlgraph containers containers-data iter containers.pp trace)

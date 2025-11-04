@@ -3,7 +3,6 @@
 open Lang
 open Types
 open Value
-open Prog
 open Expr
 open Containers
 module StringMap = Map.Make (String)
@@ -124,9 +123,9 @@ module BasilASTLoader = struct
           ProcDef_Some (bl, blocks, el) ) ->
         let proc_id = prog.prog.proc_names.decl_or_get id in
         let formal_in_params_order = List.map param_to_formal in_params in
-        let formal_in_params = formal_in_params_order |> Params.M.of_list in
+        let formal_in_params = formal_in_params_order |> StringMap.of_list in
         let formal_out_params_order = List.map param_to_formal out_params in
-        let formal_out_params = Params.M.of_list formal_out_params_order in
+        let formal_out_params = StringMap.of_list formal_out_params_order in
         Hashtbl.add prog.params_order id
           (formal_in_params_order, formal_out_params_order);
         let p =
@@ -190,13 +189,13 @@ module BasilASTLoader = struct
                     Procedure.add_goto p ~from:f ~targets:succ
                 | `ReturnNamed exprs ->
                     let f = StringMap.find name block_label_id in
-                    let args = Params.M.of_list exprs in
+                    let args = StringMap.of_list exprs in
                     Procedure.add_return p ~from:f ~args
                 | `Return exprs ->
                     let args =
                       List.combine formal_out_params_order exprs
                       |> List.map (function (name, var), expr -> (name, expr))
-                      |> Params.M.of_list
+                      |> StringMap.of_list
                     in
                     let f = StringMap.find name block_label_id in
                     Procedure.add_return p ~from:f ~args))
@@ -287,26 +286,27 @@ module BasilASTLoader = struct
     match x with
     | CallParams_Exprs exprs ->
         List.combine (List.map fst in_param) (List.map trans_expr exprs)
-        |> Params.M.of_list
+        |> StringMap.of_list
     | CallParams_Named nl ->
         nl
         |> List.map (function NamedCallArg1 (li, e) ->
             (unsafe_unsigil (`Local li), trans_expr e))
-        |> Params.M.of_list
+        |> StringMap.of_list
 
-  and trans_call_lhs prog (formal_out : string list) (x : lVars) : Params.lhs =
+  and trans_call_lhs prog (formal_out : string list) (x : lVars) :
+      Var.t StringMap.t =
     match x with
-    | LVars_Empty -> Params.M.empty
+    | LVars_Empty -> StringMap.empty
     | LVars_LocalList lvars ->
-        List.combine formal_out (unpackLVars lvars) |> Params.M.of_list
+        List.combine formal_out (unpackLVars lvars) |> StringMap.of_list
     | LVars_List lvars ->
         List.combine formal_out @@ List.map (transLVar prog) lvars
-        |> Params.M.of_list
+        |> StringMap.of_list
     | NamedLVars_List lvars ->
         lvars
         |> List.map (function NamedCallReturn1 (lVar, ident) ->
             (unsafe_unsigil (`Local ident), transLVar prog lVar))
-        |> Params.M.of_list
+        |> StringMap.of_list
 
   and unpackLVars lvs =
     List.map
