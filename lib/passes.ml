@@ -77,6 +77,14 @@ module PassManager = struct
          form)";
     }
 
+  let type_check =
+    {
+      name = "type-check";
+      apply = ProcCheck Transforms.Type_check.check;
+      doc =
+        "Fail if the IR program is not type correct";
+    }
+
   let passes =
     [
       dfg_bool;
@@ -85,6 +93,7 @@ module PassManager = struct
       read_uninit true;
       sssa;
       full_ssa;
+      type_check;
       {
         name = "remove-unreachable-block";
         apply = Proc Transforms.Cleanup_cfg.remove_blocks_unreachable_from_entry;
