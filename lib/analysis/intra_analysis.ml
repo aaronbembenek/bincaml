@@ -130,7 +130,7 @@ module MapState (V : Lattice) = struct
       let to_iter m = Iter.from_iter (fun f -> M.iter (fun k v -> f (k, v)) m)
       let read (v : Var.t) m = M.find_opt v m |> Option.get_or ~default:V.bottom
       let update k v m = M.add k v m
-      let widening a b = join a b
+      let widening a b = M.idempotent_union (fun v a b -> V.widening a b) a b
 
       type val_t = V.t
       type key_t = Var.t

@@ -61,6 +61,7 @@ struct
     let* exp = arb_expr in
     let partial = lazy (Expr_eval.partial_eval_expr exp) in
     let abstract = lazy (eval_abs exp) in
+    Lazy.force abstract |> ignore;
     let concrete = lazy (eval_abs (Lazy.force partial)) in
     return (exp, partial, abstract, concrete)
 
@@ -93,5 +94,10 @@ end
 module TestBoolDom =
   ValueAbstractionSoundness (Analysis.Defuse_bool.IsZeroValueAbstractionBasil)
 
+module TestWrappedIntervalDom =
+  ValueAbstractionSoundness
+    (Analysis.Wrapped_intervals.WrappedIntervalsValueAbstractionBasil)
+
 let _ =
-  Alcotest.run "value domain abstract eval soundness" [ TestBoolDom.suite ]
+  Alcotest.run "value domain abstract eval soundness"
+    [ TestBoolDom.suite; TestWrappedIntervalDom.suite ]

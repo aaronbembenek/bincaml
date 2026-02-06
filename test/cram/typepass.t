@@ -1,1 +1,1 @@
-  $ dune exec bincaml script ./typepass.sexp
+  $ ../../bin/main.exe script ./typepass.sexp
