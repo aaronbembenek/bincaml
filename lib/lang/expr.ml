@@ -341,6 +341,14 @@ module BasilExpr = struct
     in
     cata rw_alg expr
 
+  let rewrite_two (f : t abstract_expr abstract_expr -> t option) (expr : t) =
+    let rw_alg e =
+      let unfold = AbstractExpr.map unfix e in
+      let orig s = lazy (fix s) in
+      match f unfold with Some e -> e | None -> Lazy.force @@ orig e
+    in
+    cata rw_alg expr
+
   let rewrite_typed (f : (t * Types.t) abstract_expr -> t option) (expr : t) =
     let rw_alg e =
       let orig s = fix @@ AbstractExpr.map fst s in

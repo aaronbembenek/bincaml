@@ -3,6 +3,7 @@
  (name lang)
  (modules
   expr
+  algsimp
   common
   ops
   viscfg
