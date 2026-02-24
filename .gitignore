@@ -5,3 +5,5 @@ trace.json
 **/trace.json
 *.dot
 **/*.dot
+
+.vscode/
